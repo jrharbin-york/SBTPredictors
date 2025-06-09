@@ -78,6 +78,30 @@ def run_tsfreshwin_gradboost(results_tag, expt_config):
                                                     alg_params2=settings.window_size_choices_secs,
                                                     param1_name = "n_estimators",
                                                     param2_name = "window_size")
+
+def run_tsfreshwin_gradboost_intervals(results_tag, expt_config):
+    alg_name = "TSFreshWin_GradBoost"
+    combined_name = results_tag + alg_name
+    combined_results_all_algs = predictor.run_test_intervals(expt_config,
+                                                             combined_name,
+                                                             True,
+                                                             # alg_func_lower
+                                                             lambda n_estimators, windowsize, params: predictor.create_tsfresh_windowed_regression_gbr(params, n_estimators, windowsize, data_samples_per_second, max_depth=4, learning_rate=0.1,
+                                                                                                                                                       loss = "quantile", alpha = 0.05, min_samples_split=settings.min_samples_split_default, min_samples_leaf=settings.min_samples_leaf_default),
+                                                             # alg_func_median
+                                                             lambda n_estimators, windowsize, params: predictor.create_tsfresh_windowed_regression_gbr(params, n_estimators, windowsize, data_samples_per_second, max_depth=4, learning_rate=0.1,
+                                                                                                                                                       loss = "quantile", alpha = 0.5, min_samples_split=settings.min_samples_split_default, min_samples_leaf=settings.min_samples_leaf_default),
+                                                             # alg_func_upper
+                                                             lambda n_estimators, windowsize, params: predictor.create_tsfresh_windowed_regression_gbr(params, n_estimators, windowsize, data_samples_per_second, max_depth=4, learning_rate=0.1,
+                                                                                                                                                       loss = "quantile", alpha = 0.95, min_samples_split=settings.min_samples_split_default, min_samples_leaf=settings.min_samples_leaf_default),
+                                                             
+#                                                             lambda n_estimators, window_size, params:
+#                                                             predictor.create_tsfresh_windowed_regression_gbr(params, n_estimators, window_size, data_samples_per_second, max_depth=4, learning_rate=0.1, min_samples_split=settings.min_samples_split_default, min_samples_leaf=settings.min_samples_leaf_default),
+#                                                             
+                                                             alg_params1=settings.n_estimator_choices,
+                                                             alg_params2=settings.window_size_choices_secs,
+                                                             param1_name = "n_estimators",
+                                                             param2_name = "window_size")
                                                     
 
 def run_tsfreshwin_ridge(results_tag, expt_config):
@@ -169,12 +193,19 @@ def run_all_algs_on_dataset(expt_config, using_inceptiontime = True):
         run_tsfreshwin_ridge_fixed_window_size(dataset_name, expt_config)
         run_tsforest_fixed_window_size(dataset_name, expt_config)
     else:
-        run_tsfreshwin_gradboost(dataset_name, expt_config)
-        run_tsfreshwin_ridge(dataset_name, expt_config)
+        run_tsfreshwin_gradboost_intervals(dataset_name, expt_config)
+#        run_tsfreshwin_gradboost(dataset_name, expt_config)
+#        run_tsfreshwin_ridge(dataset_name, expt_config)
 
-    run_minirocket_gradboost(dataset_name, expt_config)
-    run_minirocket_ridge(dataset_name, expt_config)
-    run_tsforest(dataset_name, expt_config)
+#    run_minirocket_gradboost(dataset_name, expt_config)
+#    run_minirocket_ridge(dataset_name, expt_config)
+#    run_tsforest(dataset_name, expt_config)
+
+    # save results before running inceptiontime
+    print("Combined results sorted by r2_score...\n")
+    combined_result_file = dataset_name + "_sorted_summary_results.csv"
+    combined_results_all_algs.to_csv(combined_result_file, sep=",")
+    print(tabulate(combined_results_all_algs, headers="keys"))
 
     # inceptiontime is very long running
     if using_inceptiontime:

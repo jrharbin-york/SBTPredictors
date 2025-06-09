@@ -52,21 +52,77 @@ import glob
 import sys
 import pandas as pd
 import os
+import gc
 import psutil
 import tracemalloc
-import structlog 
+import structlog
+import logging
+
 from sktime.pipeline import make_pipeline
 from tabulate import tabulate
 
 log = structlog.get_logger()
 
-USE_TRACEMALLOC = False
 k_fold_shuffle = True
 
-def process_memory():
-    process = psutil.Process(os.getpid())
-    mem_info = process.memory_info()
-    return mem_info.rss
+class MemoryTracker:
+    pass
+
+class TraceMallocMemoryTracker(MemoryTracker):
+    def __init__(self):
+        pass
+        
+    def start_tracking(self):
+        tracemalloc.start()
+
+    def end_tracking(self):
+        stats = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        
+
+class PSUtilMemoryTracker(MemoryTracker):
+    def __init__(self):
+        self.with_gc_disabled = False
+        self.process = psutil.Process(os.getpid())
+
+    def clear_gc(self):
+        log.info("Running GC to clear memory")
+        gc.collect()
+
+    def enable_gc(self):
+        log.info("Enabling GC")
+        gc.enable()
+
+    def disable_gc(self):
+        log.info("Disabling GC")
+        gc.disable()
+        
+    def start_tracking(self):
+        if self.with_gc_disabled:
+            self.clear_gc()
+            self.disable_gc()
+        self.mem_info_before = self.process.memory_info()
+        log.info("Starting memory tracking")
+
+    def end_tracking(self):
+        self.mem_info_after = self.process.memory_info()
+        if self.with_gc_disabled:
+            self.clear_gc()
+            self.enable_gc()
+        log.info("Ending memory tracking")
+        return self.mem_info_after.rss - self.mem_info_before.rss
+
+class PSUtilMemoryTrackerNoGC(PSUtilMemoryTracker):
+    def __init__(self):
+        super().__init__()
+        self.with_gc_disabled = True
+
+MEMORY_TRACKING_CLASS = PSUtilMemoryTrackerNoGC
+  
+#def process_memory():
+#    process = psutil.Process(os.getpid())
+#    mem_info = process.memory_info()
+#    return mem_info.rss
 
 def load_individual_instance(filename, needed_columns):
     df = pd.read_csv(filename)
@@ -406,7 +462,7 @@ def plot_regression(regression_graph_title, predicted_vs_actual, expt_config, fi
     predicted_vs_actual.to_csv(csv_filename, columns = headers)
     plt.savefig(filename)
 
-def plot_regression_intervals(predicted_vs_actual, expt_config, filename="regression.pdf"):
+def plot_regression_intervals(regression_graph_title, predicted_vs_actual, expt_config, filename="regression.pdf"):
     # Plot with error bars
     print("length of dataframe:" + str(len(predicted_vs_actual)))
     plt.clf()
@@ -424,7 +480,7 @@ def plot_regression_intervals(predicted_vs_actual, expt_config, filename="regres
     
     plt.xlim([plot_x_lower, plot_x_upper])
     plt.ylim([plot_y_lower, plot_y_upper])
-    plt.title("Predicted vs actual object position error for Mycobot with four joints fuzzed")
+    plt.title(regression_graph_title)
     plt.savefig(filename)   
 
 def plot_confusion_matrix(predicted_vs_actual, filename="confusion.pdf", normalize=None):
@@ -463,6 +519,124 @@ def read_data(results_directory, mfile):
     data_files = list(map(os.path.basename, sorted(glob.glob(results_directory + "/*Test*"))))
     metrics = pd.read_csv(mfile)
     return data_files, metrics
+
+
+
+
+def test_regression(id_code, result_desc, alg_name, alg_func, fig_filename_func, pd_res, expt_config, summary_res, alg_param1, alg_param2, k=5):
+    params = {}
+
+    params["base_dir"] = expt_config["data_dir_base"]
+    params["target_metric_name"] = expt_config["target_metric_name"]
+    params["needed_columns"] = expt_config["needed_columns"]
+
+    mfile = expt_config["data_dir_base"] + "/metrics.csv"
+    data_files, metrics = read_data(expt_config["data_dir_base"], mfile)
+    alg_func_delayed = lambda params: alg_func(alg_param1, alg_param2, params)
+ 
+    k=5
+    kf = KFold(n_splits=k, shuffle=k_fold_shuffle)
+
+    # Accumulate these over all splits
+    r2_score_all_splits = []
+    mse_all_splits = []
+    rmse_all_splits = []
+
+    timediff_all_splits = []
+    memoryused_all_splits = []
+    
+    for i, (train_index, test_index) in enumerate(kf.split(data_files)):
+        # Split the data for k_fold validation
+        params["data_files_train"] = [data_files[i] for i in train_index]
+        params["metrics_train_pandas"] = metrics.iloc[train_index]
+        params["data_files_test"] = [data_files[i] for i in test_index]
+        params["metrics_test_pandas"] = metrics.iloc[test_index]
+        log.debug(f"Fold {i}:")
+        fig_filename = fig_filename_func(id_code, i)
+
+        memory_tracker = MEMORY_TRACKING_CLASS()
+        memory_tracker.start_tracking()
+        time_start = timer()
+        
+        pipeline, r2_score_from_reg, predicted_vs_actual = run_regression_or_classifier(True, alg_func_delayed, alg_name, params)
+        
+        time_end = timer()
+        time_diff = time_end - time_start
+        memory_used = memory_tracker.end_tracking()
+        
+        mse_c = MeanSquaredError()
+        rmse_c = MeanSquaredError(square_root=True)
+
+        r2se = r2_score(predicted_vs_actual["actual_val"], predicted_vs_actual["predicted_val"], multioutput='uniform_average')
+
+        mse = mse_c(predicted_vs_actual["actual_val"], predicted_vs_actual["predicted_val"])
+        rmse = rmse_c(predicted_vs_actual["actual_val"], predicted_vs_actual["predicted_val"])
+
+        log.debug("r2_score from regression run = %f, r2_score locally computed = %f", r2_score_from_reg, r2se)
+
+        # Fix: needed to set multioutput='uniform_average'
+        if abs(r2se - r2_score_from_reg) > 1e-6:
+            log.error("Discrepancy between r2_score computed in pipeline and r2_score computed from sklearn")
+            sys.exit(-1)
+
+        r2_score_all_splits = np.append(r2_score_all_splits, r2se)
+        mse_all_splits = np.append(mse_all_splits, mse)#
+        rmse_all_splits = np.append(rmse_all_splits, rmse)
+        timediff_all_splits = np.append(timediff_all_splits, time_diff)
+        memoryused_all_splits = np.append(memoryused_all_splits, memory_used)
+
+        results_this_test = {"id":id_code,
+                             "result_desc":result_desc,
+                             "k_split":i,
+                             "param1":alg_param1,
+                             "param2":alg_param2,
+                             "r2_score":r2_score_from_reg,
+                             "filename_graph":fig_filename,
+                             "time_diff":time_diff,
+                             "memory_used":memory_used,
+                             "mse":mse,
+                             "rmse":rmse }
+        pd_res.loc[len(pd_res)] = results_this_test
+        # change filename
+        log.debug("Plotting regression plot to %s", fig_filename)
+        plot_regression(expt_config["regression_graph_title"], predicted_vs_actual, expt_config, fig_filename)
+
+    mean_r2 = np.mean(r2_score_all_splits)
+    mean_mse = np.mean(mse_all_splits)
+    mean_rmse = np.mean(rmse_all_splits)
+
+    stddev_r2 = np.std(r2_score_all_splits)
+    stddev_mse = np.std(mse_all_splits)
+    stddev_rmse = np.std(rmse_all_splits)
+
+    memory_used_mean = np.mean(memoryused_all_splits)
+    memory_used_stddev = np.std(memoryused_all_splits)
+    time_mean = np.mean(timediff_all_splits)
+    time_stddev = np.std(timediff_all_splits)
+
+    summary_this_test = {"id":id_code,
+                         "result_desc":result_desc,
+                         "param1":alg_param1,
+                         "param2":alg_param2,
+                         "r2_score_mean":mean_r2,
+                         "mse_mean":mean_mse,
+                         "rmse_mean":mean_rmse,
+                         "r2_score_stddev":stddev_r2,
+                         "mse_score_stddev":stddev_mse,
+                         "rmse_score_stddev":stddev_rmse,
+                         "memory_used_mean":memory_used_mean,
+                         "time_mean":time_mean,
+                         "memory_used_stddev":memory_used_stddev,
+                         "time_stddev":time_stddev
+                         }
+    
+    summary_res.loc[len(summary_res)] = summary_this_test
+
+    log.info("Mean r2 all splits = %f, stddev r2 all splits = %f", mean_r2, stddev_r2)
+    log.info("Mean MSE all splits = %f, stddev MSE all splits = %f", mean_mse, stddev_mse)
+    log.info("Mean RMSE all splits = %f, stddev RMSE all splits = %f", mean_rmse, stddev_rmse)
+
+    return pd_res, summary_res
 
 def test_regression_intervals(id_code, alg_name, alg_func_lower, alg_func_median, alg_func_upper,
                               fig_filename_func, pd_res, expt_config, summary_res, alg_param1, alg_param2, k=5):
@@ -513,18 +687,12 @@ def test_regression_intervals(id_code, alg_name, alg_func_lower, alg_func_median
         interval_width_stddev = np.std(predicted_vs_actual["interval_width"])
         mae_intervals = np.mean(predicted_vs_actual["mae_intervals"])
 
-#        r2_score_all_splits = np.append(r2_score_all_splits, r2se)
-#        mse_all_splits = np.append(mse_all_splits, mse)
-#        rmse_all_splits = np.append(rmse_all_splits, rmse)
-         
         results_this_test = {"id":id_code,
                              "k_split":i,
                              "param1":alg_param1,
                              "param2":alg_param2,
                              "filename_graph":fig_filename,
                              "time_diff":time_diff,
-#                             "mse":mse,
-#                             "rmse":rmse,
                              "in_interval_proportion":in_interval_proportion,
                              "interval_width_mean":interval_width_mean,
                              "interval_width_stddev":interval_width_stddev,
@@ -534,7 +702,7 @@ def test_regression_intervals(id_code, alg_name, alg_func_lower, alg_func_median
         pd_res.loc[len(pd_res)] = results_this_test
         # change filename
         log.debug("Plotting regression plot to %s", fig_filename)
-        plot_regression_intervals(predicted_vs_actual, expt_config, fig_filename)
+        plot_regression_intervals(expt_config["regression_graph_title"], predicted_vs_actual, expt_config, fig_filename)
 
     mean_r2 = np.mean(r2_score_all_splits)
     mean_mse = np.mean(mse_all_splits)
@@ -561,122 +729,6 @@ def test_regression_intervals(id_code, alg_name, alg_func_lower, alg_func_median
 
     return pd_res, summary_res
 
-def test_regression(id_code, result_desc, alg_name, alg_func, fig_filename_func, pd_res, expt_config, summary_res, alg_param1, alg_param2, k=5):
-    params = {}
-
-    params["base_dir"] = expt_config["data_dir_base"]
-    params["target_metric_name"] = expt_config["target_metric_name"]
-    params["needed_columns"] = expt_config["needed_columns"]
-
-    mfile = expt_config["data_dir_base"] + "/metrics.csv"
-    data_files, metrics = read_data(expt_config["data_dir_base"], mfile)
-    alg_func_delayed = lambda params: alg_func(alg_param1, alg_param2, params)
- 
-    k=5
-    kf = KFold(n_splits=k, shuffle=k_fold_shuffle)
-
-    # Accumulate these over all splits
-    r2_score_all_splits = []
-    mse_all_splits = []
-    rmse_all_splits = []
-
-    timediff_all_splits = []
-    memoryused_all_splits = []
-    
-    for i, (train_index, test_index) in enumerate(kf.split(data_files)):
-        # Split the data for k_fold validation
-        params["data_files_train"] = [data_files[i] for i in train_index]
-        params["metrics_train_pandas"] = metrics.iloc[train_index]
-        params["data_files_test"] = [data_files[i] for i in test_index]
-        params["metrics_test_pandas"] = metrics.iloc[test_index]
-        log.debug(f"Fold {i}:")
-        fig_filename = fig_filename_func(id_code, i)
-
-        # https://www.geeksforgeeks.org/monitoring-memory-usage-of-a-running-python-program/
-        if USE_TRACEMALLOC:
-            tracemalloc.start()
-        
-        time_start = timer()
-        pipeline, r2_score_from_reg, predicted_vs_actual = run_regression_or_classifier(True, alg_func_delayed, alg_name, params)
-        
-        time_end = timer()
-        time_diff = time_end - time_start
-
-        if USE_TRACEMALLOC:
-            memory_used = tracemalloc.get_traced_memory()
-            tracemalloc.stop()
-        else:
-            memory_used = 0
-
-        mse_c = MeanSquaredError()
-        rmse_c = MeanSquaredError(square_root=True)
-
-        r2se = r2_score(predicted_vs_actual["actual_val"], predicted_vs_actual["predicted_val"], multioutput='uniform_average')
-
-        mse = mse_c(predicted_vs_actual["actual_val"], predicted_vs_actual["predicted_val"])
-        rmse = rmse_c(predicted_vs_actual["actual_val"], predicted_vs_actual["predicted_val"])
-
-        log.debug("r2_score from regression run = %f, r2_score locally computed = %f", r2_score_from_reg, r2se)
-
-        # Fix: needed to set multioutput='uniform_average'
-        if abs(r2se - r2_score_from_reg) > 1e-6:
-            log.error("Discrepancy between r2_score computed in pipeline and r2_score computed from sklearn")
-            sys.exit(-1)
-
-        r2_score_all_splits = np.append(r2_score_all_splits, r2se)
-        mse_all_splits = np.append(mse_all_splits, mse)#
-        rmse_all_splits = np.append(rmse_all_splits, rmse)
-        timediff_all_splits = np.append(timediff_all_splits, time_diff)
-        memoryused_all_splits = np.append(memoryused_all_splits, memory_used)
-
-        results_this_test = {"id":id_code,
-                             "result_desc":result_desc,
-                             "k_split":i,
-                             "param1":alg_param1,
-                             "param2":alg_param2,
-                             "r2_score":r2_score_from_reg,
-                             "filename_graph":fig_filename,
-                             "time_diff":time_diff,
-                             "memory_used":memory_used,
-                             "mse":mse,
-                             "rmse":rmse }
-        pd_res.loc[len(pd_res)] = results_this_test
-        # change filename
-        log.debug("Plotting regression plot to %s", fig_filename)
-        plot_regression(expt_config["regression_graph_title"], predicted_vs_actual, expt_config, fig_filename)
-
-    mean_r2 = np.mean(r2_score_all_splits)
-    mean_mse = np.mean(mse_all_splits)
-    mean_rmse = np.mean(rmse_all_splits)
-
-    stddev_r2 = np.std(r2_score_all_splits)
-    stddev_mse = np.std(mse_all_splits)
-    stddev_rmse = np.std(rmse_all_splits)
-
-    memory_used_mean = np.mean(memoryused_all_splits)
-    timediff_mean = np.mean(timediff_all_splits)
-
-    summary_this_test = {"id":id_code,
-                         "result_desc":result_desc,
-                         "param1":alg_param1,
-                         "param2":alg_param2,
-                         "r2_score_mean":mean_r2,
-                         "mse_mean":mean_mse,
-                         "rmse_mean":mean_rmse,
-                         "r2_score_stddev":stddev_r2,
-                         "mse_score_stddev":stddev_mse,
-                         "rmse_score_stddev":stddev_rmse,
-                         "memory_used_mean":memory_used_mean,
-                         "timediff_mean":timediff_mean
-                         }
-    
-    summary_res.loc[len(summary_res)] = summary_this_test
-
-    log.info("Mean r2 all splits = %f, stddev r2 all splits = %f", mean_r2, stddev_r2)
-    log.info("Mean MSE all splits = %f, stddev MSE all splits = %f", mean_mse, stddev_mse)
-    log.info("Mean RMSE all splits = %f, stddev RMSE all splits = %f", mean_rmse, stddev_rmse)
-
-    return pd_res, summary_res
 
 def test_classification(id_code, alg_name, alg_func, fig_filename_func, pd_res, expt_config, summary_res, alg_param1, alg_param2, k=5):
     params = {}
@@ -745,7 +797,7 @@ def test_classification(id_code, alg_name, alg_func, fig_filename_func, pd_res, 
 def run_test(expt_config, combined_results_all_tests, alg_name, regression, alg_func, alg_params1, alg_params2, param1_name, param2_name):
     if regression:
         individual_results = pd.DataFrame(columns=["id", "param1", "param2", "k_split", "r2_score", "mse", "rmse", "filename_graph", "time_diff", "memory_used"])
-        stats_results = pd.DataFrame(columns=["id", "result_desc", "param1", "param2", "r2_score_mean", "mse_mean", "rmse_mean", "r2_score_stddev", "mse_score_stddev", "rmse_score_stddev", "memory_used_mean", "timediff_mean"])
+        stats_results = pd.DataFrame(columns=["id", "result_desc", "param1", "param2", "r2_score_mean", "mse_mean", "rmse_mean", "r2_score_stddev", "mse_score_stddev", "rmse_score_stddev", "memory_used_mean", "time_mean", "memory_used_stddev", "time_stddev"])
         name_base = "regression"
     else:
         individual_results = pd.DataFrame(columns=["id", "param1", "param2", "k_split", "accuracy_score", "top_k_accuracy_score", "filename_graph", "time_diff"])
@@ -791,43 +843,27 @@ def run_test(expt_config, combined_results_all_tests, alg_name, regression, alg_
 
     return combined_results_all_tests
 
-def run_test_intervals(alg_name, expt_config):
+def run_test_intervals(expt_config, alg_name, regression, alg_func_lower, alg_func_median, alg_func_upper, alg_params1, alg_params2, param1_name, param2_name):
     individual_results = pd.DataFrame(columns=["id", "param1", "param2", "k_split", "filename_graph", "time_diff", "in_interval_proportion", "interval_width_mean", "interval_width_stddev", "mae"])
     stats_results = pd.DataFrame(columns=["param1", "param2", "r2_score_mean", "mse_mean", "rmse_mean", "r2_score_stddev", "mse_score_stddev", "rmse_score_stddev"])
     name_base = "regression"
-    id_code = 0
 
-    # n_estimators
-    n_estimators = 300
-    # window_size
-    windowsize = 20.0
-
-    # min_samples_split
-    param1 = 3
-    # min_leaf_split
-    param2 = 1
+    results_file = name_base + "-" + alg_name + "-interval-res.csv"
+    summary_file = name_base + "-" + alg_name + "-interval-summary-stats.csv"
     
-    fig_filename_func = lambda id_num, k_split: name_base + "-" + alg_name + "-ID" + str(id_num) + "-" + str(param1) + "-" + str(param2) + "-" + "k_split" + str(k_split) +".png"
-    
-    alg_func_lower = lambda min_samples_split, min_samples_leaf, params: create_tsfresh_windowed_regression(params, n_estimators, windowsize, 10.0, max_depth=4, learning_rate=0.1,
-                                                                                                            loss = "quantile", alpha = 0.05, min_samples_split=3, min_samples_leaf=min_samples_leaf)
-    
-    alg_func_median = lambda min_samples_split, min_samples_leaf, params: create_tsfresh_windowed_regression(params, n_estimators, windowsize, 10.0, max_depth=4, learning_rate=0.1,
-                                                                                                  loss = "quantile", alpha = 0.5, min_samples_split=3, min_samples_leaf=min_samples_leaf)
-    
-    alg_func_upper = lambda min_samples_split, min_samples_leaf, params: create_tsfresh_windowed_regression(params, n_estimators, windowsize, 10.0, max_depth=4, learning_rate=0.1,
-                                                                                                 loss = "quantile", alpha = 0.95, min_samples_split=3, min_samples_leaf=min_samples_leaf)
-    
-    individual_results, stats_results = test_regression_intervals(id_code, alg_name, alg_func_lower, alg_func_median, alg_func_upper,
+    id_num = 0
+    for param1 in alg_params1:
+        for param2 in alg_params2:  
+            fig_filename_func = lambda id_num, k_split: name_base + "-intervals-" + alg_name + "-ID" + str(id_num) + "-" + str(param1) + "-" + str(param2) + "-" + "k_split" + str(k_split) +".png"
+            id_num+=1
+            id_code = "ID" + str(id_num) + param1_name + str(param1) + "_" + param2_name + str(param2)
+            individual_results, stats_results = test_regression_intervals(id_code, alg_name, alg_func_lower, alg_func_median, alg_func_upper,
                                                           fig_filename_func, individual_results, expt_config, stats_results, alg_param1=param1, alg_param2=param2)
-    
-    results_file = name_base + "-" + alg_name + "-res.csv"
-    summary_file = name_base + "-" + alg_name + "-summary-stats.csv"
-    individual_results.to_csv(results_file, sep=",")
+            individual_results.to_csv(results_file, sep=",")
+            print(tabulate(individual_results, headers="keys"))
     stats_results.to_csv(summary_file, sep=",")
     print(tabulate(stats_results, headers="keys"))
-    print(tabulate(individual_results, headers="keys"))
-
+            
 def test_regression_ngboost(id_code, alg_name, alg_func, fig_filename_func, pd_res, expt_config, summary_res, alg_param1, alg_param2, k=5):
     params = {}
 

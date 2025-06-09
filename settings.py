@@ -13,14 +13,14 @@
 
 learning_rates=[0.1,0.05,0.03, 0.2, 0.3]
 
-rocket_kernel_choices = [100,2000]
+rocket_kernel_choices = [100,200,500,1000,2000]
 
 ###### QUICK TEST SETTINGS
 
-n_estimator_choices=[300,200,100,50,25,5]
-window_size_choices_secs=[0.5,1.0,2.0,5.0,10.0,20.0]
-#n_estimator_choices=[300]
-#window_size_choices_secs=[0.5]
+#n_estimator_choices=[300,200,100,50,25,5]
+#window_size_choices_secs=[0.5,1.0,2.0,5.0,10.0,20.0]
+n_estimator_choices=[300]
+window_size_choices_secs=[0.5]
 
 tsf_min_intervals = [3]
 max_alphas = [5,10,20]
