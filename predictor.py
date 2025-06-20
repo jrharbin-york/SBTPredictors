@@ -45,6 +45,7 @@ from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.ensemble import AdaBoostRegressor
 
 from sklearn.ensemble import GradientBoostingClassifier
+from scipy import stats
 
 import datetime as dt
 import numpy as np
@@ -57,6 +58,14 @@ import psutil
 import tracemalloc
 import structlog
 import logging
+
+from ngboost import NGBRegressor
+from ngboost.distns import Exponential, Normal
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+
+from filprofiler.api import profile
 
 from sktime.pipeline import make_pipeline
 from tabulate import tabulate
@@ -78,7 +87,9 @@ class TraceMallocMemoryTracker(MemoryTracker):
     def end_tracking(self):
         stats = tracemalloc.get_traced_memory()
         tracemalloc.stop()
-        
+
+    def with_tracking(self, function_to_track):
+        return function_to_track() 
 
 class PSUtilMemoryTracker(MemoryTracker):
     def __init__(self):
@@ -117,7 +128,23 @@ class PSUtilMemoryTrackerNoGC(PSUtilMemoryTracker):
         super().__init__()
         self.with_gc_disabled = True
 
-MEMORY_TRACKING_CLASS = PSUtilMemoryTrackerNoGC
+class FilProfilerMemoryTracker(MemoryTracker):
+    def __init__(self):
+        pass
+
+    def start_tracking(self):
+        # Redundant, the tracking is done in with_tracking
+        pass
+
+    def end_tracking(self):
+        # Redundant, the tracking is done in with_tracking
+        pass
+
+    def with_tracking(self, function_to_track):
+        return profile(function_to_track, "/tmp/fil-result")
+        
+
+MEMORY_TRACKING_CLASS = FilProfilerMemoryTracker
   
 #def process_memory():
 #    process = psutil.Process(os.getpid())
@@ -282,6 +309,23 @@ def create_tsf_regression(n_estimators=200, min_interval=3):
     log.debug("Constructing TSForest regressor with n_estimators=%u", n_estimators)
     tsfr = combiner * TimeSeriesForestRegressor(n_estimators=n_estimators, n_jobs=-1)
     return tsfr
+
+def create_tsfresh_windowed_featuresonly(params, n_estimators, windowsize, res_samples_per_second):
+    feature_name = "jrh_windowed_features_calculation_fixedsize"
+    settings = {}
+    log.debug("create windowsize=" + str(windowsize))
+    settings[feature_name] = {"windowsize" : windowsize, "resolution_samples_per_second" : res_samples_per_second }
+    col_names = params["needed_columns"]
+
+    features_selected = list(map(lambda col_name: col_name + "__" + feature_name + "__windowsize_" + str(windowsize) + "__resolution_samples_per_second_" + str(res_samples_per_second), col_names))
+
+    for fn in features_selected:
+        settings[fn] = {"windowsize" : windowsize}
+    
+    print("features_selected = " + str(features_selected))
+    t_features = TSFreshFeatureExtractor(default_fc_parameters=settings, kind_to_fc_parameters=features_selected, show_warnings=False)
+    pipeline = make_pipeline(t_features)
+    return pipeline
 
 def create_tsfresh_windowed_regression_gbr(params, n_estimators, windowsize, res_samples_per_second, max_depth=3, learning_rate=0.1, loss="squared_error", alpha = 0.5, min_samples_leaf=1, min_samples_split=2):
     feature_name = "jrh_windowed_features_calculation_fixedsize"
@@ -462,7 +506,33 @@ def plot_regression(regression_graph_title, predicted_vs_actual, expt_config, fi
     predicted_vs_actual.to_csv(csv_filename, columns = headers)
     plt.savefig(filename)
 
-def plot_regression_intervals(regression_graph_title, predicted_vs_actual, expt_config, filename="regression.pdf"):
+def plot_regression_intervals_new(regression_graph_title, predicted_vs_actual_unsorted, expt_config, filename="regression.pdf"):
+    # Plot with error bars
+    predicted_vs_actual = predicted_vs_actual_unsorted.sort_values(by=['actual_val'])
+    
+    print("length of dataframe:" + str(len(predicted_vs_actual)))
+    plt.clf()
+
+    error_above = np.abs(predicted_vs_actual["predicted_val_upper"] - predicted_vs_actual["predicted_val_median"])
+    error_below = np.abs(predicted_vs_actual["predicted_val_median"] - predicted_vs_actual["predicted_val_lower"])
+    test_indices = np.arange(1, len(predicted_vs_actual)+1)
+    plt.errorbar(test_indices, predicted_vs_actual["predicted_val_median"], yerr=[error_below, error_above], marker='.', fmt="none", elinewidth=0.3)
+    plt.scatter(test_indices, predicted_vs_actual["actual_val"], c="r", marker="x", linewidths=0.1)
+    
+    plt.xlabel("Test indices sorted by actual value")
+    plt.ylabel("Intervals vs actual value of sensitive point")
+
+    plot_x_lower = expt_config["plot_x_lower"]
+    plot_x_upper = expt_config["plot_x_upper"]
+    plot_y_lower = expt_config["plot_y_lower"]
+    plot_y_upper = expt_config["plot_y_upper"]
+    
+#    plt.xlim([plot_x_lower, plot_x_upper])
+#    plt.ylim([plot_y_lower, plot_y_upper])
+    plt.title(regression_graph_title)
+    plt.savefig(filename)
+
+def plot_regression_intervals_original(regression_graph_title, predicted_vs_actual, expt_config, filename="regression.pdf"):
     # Plot with error bars
     print("length of dataframe:" + str(len(predicted_vs_actual)))
     plt.clf()
@@ -482,6 +552,7 @@ def plot_regression_intervals(regression_graph_title, predicted_vs_actual, expt_
     plt.ylim([plot_y_lower, plot_y_upper])
     plt.title(regression_graph_title)
     plt.savefig(filename)   
+    
 
 def plot_confusion_matrix(predicted_vs_actual, filename="confusion.pdf", normalize=None):
     cm = confusion_matrix(predicted_vs_actual["actual_class"], predicted_vs_actual["predicted_class"], normalize=normalize)
@@ -520,9 +591,6 @@ def read_data(results_directory, mfile):
     metrics = pd.read_csv(mfile)
     return data_files, metrics
 
-
-
-
 def test_regression(id_code, result_desc, alg_name, alg_func, fig_filename_func, pd_res, expt_config, summary_res, alg_param1, alg_param2, k=5):
     params = {}
 
@@ -557,8 +625,9 @@ def test_regression(id_code, result_desc, alg_name, alg_func, fig_filename_func,
         memory_tracker = MEMORY_TRACKING_CLASS()
         memory_tracker.start_tracking()
         time_start = timer()
-        
-        pipeline, r2_score_from_reg, predicted_vs_actual = run_regression_or_classifier(True, alg_func_delayed, alg_name, params)
+
+#       pipeline, r2_score_from_reg, predicted_vs_actual = run_regression_or_classifier(True, alg_func_delayed, alg_name, params)
+        pipeline, r2_score_from_reg, predicted_vs_actual = memory_tracker.with_tracking(lambda: run_regression_or_classifier(True, alg_func_delayed, alg_name, params))
         
         time_end = timer()
         time_diff = time_end - time_start
@@ -702,7 +771,7 @@ def test_regression_intervals(id_code, alg_name, alg_func_lower, alg_func_median
         pd_res.loc[len(pd_res)] = results_this_test
         # change filename
         log.debug("Plotting regression plot to %s", fig_filename)
-        plot_regression_intervals(expt_config["regression_graph_title"], predicted_vs_actual, expt_config, fig_filename)
+        plot_regression_intervals_new(expt_config["regression_graph_title"], predicted_vs_actual, expt_config, fig_filename)
 
     mean_r2 = np.mean(r2_score_all_splits)
     mean_mse = np.mean(mse_all_splits)
@@ -863,8 +932,23 @@ def run_test_intervals(expt_config, alg_name, regression, alg_func_lower, alg_fu
             print(tabulate(individual_results, headers="keys"))
     stats_results.to_csv(summary_file, sep=",")
     print(tabulate(stats_results, headers="keys"))
-            
-def test_regression_ngboost(id_code, alg_name, alg_func, fig_filename_func, pd_res, expt_config, summary_res, alg_param1, alg_param2, k=5):
+
+def confidence_intervals_from_normal_distributions(y_dist_test, interval_val=0.95):
+    size = len(y_dist_test)
+    print("size=", size)
+    conf_intervals_lower = np.zeros(size)
+    conf_intervals_upper = np.zeros(size)
+    normal_means = np.zeros(size)
+    for i in range(0,size):
+        normal_dist_params = y_dist_test[i].params
+        conf_int = stats.norm.interval(interval_val, loc=normal_dist_params["loc"], scale=normal_dist_params["scale"])
+        print("first y_dist = " + str(normal_dist_params) + ",conf_int=" + str(conf_int))
+        conf_intervals_lower[i] = conf_int[0]
+        conf_intervals_upper[i] = conf_int[1]
+        normal_means[i] = normal_dist_params["loc"]
+    return conf_intervals_lower, conf_intervals_upper, normal_means
+
+def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_func, pd_res, expt_config, summary_res, alg_param1, alg_param2, k=5):
     params = {}
 
     params["base_dir"] = expt_config["data_dir_base"]
@@ -872,9 +956,14 @@ def test_regression_ngboost(id_code, alg_name, alg_func, fig_filename_func, pd_r
     params["needed_columns"] = expt_config["needed_columns"]    
     mfile = expt_config["data_dir_base"] + "/metrics.csv"
     data_files, metrics = read_data(expt_config["data_dir_base"], mfile)
+    target_metric_name = expt_config["target_metric_name"]
 
     alg_func_delayed = lambda params: alg_func(alg_param1, alg_param2, params)
- 
+
+    base_dir = params["base_dir"]
+    needed_columns = params["needed_columns"]
+    alg_name = params["target_metric_name"]   
+    
     k=5
     kf = KFold(n_splits=k, shuffle=k_fold_shuffle)
 
@@ -885,10 +974,10 @@ def test_regression_ngboost(id_code, alg_name, alg_func, fig_filename_func, pd_r
     
     for i, (train_index, test_index) in enumerate(kf.split(data_files)):
         # Split the data for k_fold validation
-        params["data_files_train"] = [data_files[i] for i in train_index]
-        params["metrics_train_pandas"] = metrics.iloc[train_index]
-        params["data_files_test"] = [data_files[i] for i in test_index]
-        params["metrics_test_pandas"] = metrics.iloc[test_index]
+        data_files_train = [data_files[i] for i in train_index]
+        metrics_train_pandas = metrics.iloc[train_index]
+        data_files_test = [data_files[i] for i in test_index]
+        metrics_test_pandas = metrics.iloc[test_index]
         log.debug(f"Fold {i}:")
         fig_filename = fig_filename_func(id_code, i)
 
@@ -905,17 +994,66 @@ def test_regression_ngboost(id_code, alg_name, alg_func, fig_filename_func, pd_r
         metrics_test =  np.array(metrics_test_pandas[target_metric_name])
         log.debug("Check data format train_metrics: %s",check_raise(metrics_test, mtype="np.ndarray"))
         log.debug("Check data format test_metrics: %s",check_raise(metrics_train, mtype="np.ndarray"))
-        
-        features_pipe = pipeline_gen_func(params)
-        features_pipe.fit(train_data, metrics_train)
-        features = features_pipe.transform(train_data)
 
-        # n_estimators needs to be larger?
-        dist = MultivariateNormal(2)
-        ngb = NGBRegressor(Dist=dist, verbose=True, n_estimators=2000, natural_gradient=True)
-        ngb.fit(X, Y, X_val=X_val, Y_val=Y_val, early_stopping_rounds=100)
-        y_dist = ngb.pred_dist(X, max_iter=ngb.best_val_loss_itr)
+        # Need a custom pipeline to just generate the features here...
+        # use create_tsfresh_windowed_featuresonly
+        res_samples_per_second = 10
+        n_estimators = 300
+        window_size = 0.5
+
+        confidence_intervals_param = 0.95
         
+        features_pipe = create_tsfresh_windowed_featuresonly(params, n_estimators, window_size, res_samples_per_second)
+        features_pipe.fit(train_data, metrics_train)
+        x_features_train = features_pipe.transform(train_data)
+        x_features_test = features_pipe.transform(test_data)
+
+        dist = Normal
+        ngb = NGBRegressor(Dist=dist, verbose=True, n_estimators=n_estimators, natural_gradient=True)
+        ngb.fit(x_features_train, metrics_train, early_stopping_rounds=300)
+        y_dist_test = ngb.pred_dist(x_features_test, max_iter=ngb.best_val_loss_itr)
+        conf_intervals_lower, conf_intervals_upper, normal_mean = confidence_intervals_from_normal_distributions(y_dist_test, confidence_intervals_param)
+
+        actual_val = metrics_test
+        
+        interval_width = conf_intervals_lower - conf_intervals_upper
+        is_inside_interval = np.logical_and((actual_val >= conf_intervals_lower), (actual_val <= conf_intervals_upper))
+        mae_intervals = calc_mae_from_intervals_all(conf_intervals_lower, conf_intervals_upper, actual_val, is_inside_interval)
+
+        predicted_vs_actual = pd.DataFrame({'predicted_val_lower':conf_intervals_lower,
+                                            'predicted_val_median':normal_mean,
+                                            'predicted_val_upper':conf_intervals_upper,
+                                            'actual_val':actual_val,
+                                            'interval_width':interval_width,                                       
+                                            'is_inside_interval':is_inside_interval,
+                                            'mae_intervals':mae_intervals},
+                                           columns = ['predicted_val_lower',
+                                                      'predicted_val_median',
+                                                      'predicted_val_upper',
+                                                      'actual_val',
+                                                      'interval_width',
+                                                      'is_inside_interval',
+                                                      'mae_intervals'
+                                                      ])
+
+        plot_regression_intervals_new(expt_config["regression_graph_title"], predicted_vs_actual, expt_config, fig_filename)
+
+#        normal_dist_params = y_dist[0].params
+#        conf_int = stats.norm.interval(0.95, loc=normal_dist_params["loc"], scale=normal_dist_params["scale"])
+#        conf_int_lower = conf_int[0]
+#        conf_int_upper = conf_int[1]
+#        print("first y_dist = " + str(normal_dist_params) + ",lower=" + str(conf_int_lower) + ",upper=" + str(conf_int_upper))
+#        normal_mean = y_dist[0].mean
+#        normal_stddev = y_dist[0].std
+
+
+
+
+
+        
+        # how to get the interval from y_dist here?
+        # https://www.reddit.com/r/MachineLearning/comments/il90ic/research_using_models_for_ngboost/
+
 #       pipeline, r2_score_from_reg, predicted_vs_actual = run_regression_or_classifier(True, alg_func_delayed, alg_name, params)
         
         time_end = timer()
@@ -963,7 +1101,7 @@ def test_regression_ngboost(id_code, alg_name, alg_func, fig_filename_func, pd_r
 
     return pd_res, summary_res
 
-def run_test_ngboost(alg_name, expt_config):
+def run_test_ngboost_intervals(alg_name, expt_config):
     individual_results = pd.DataFrame(columns=["id", "param1", "param2", "k_split", "filename_graph", "time_diff", "in_interval_proportion", "interval_width_mean", "interval_width_stddev", "mae"])
     stats_results = pd.DataFrame(columns=["param1", "param2", "r2_score_mean", "mse_mean", "rmse_mean", "r2_score_stddev", "mse_score_stddev", "rmse_score_stddev"])
     name_base = "regression"
@@ -981,17 +1119,10 @@ def run_test_ngboost(alg_name, expt_config):
     
     fig_filename_func = lambda id_num, k_split: name_base + "-" + alg_name + "-ID" + str(id_num) + "-" + str(param1) + "-" + str(param2) + "-" + "k_split" + str(k_split) +".png"
     
-    alg_func_lower = lambda min_samples_split, min_samples_leaf, params: create_tsfresh_windowed_regression(params, n_estimators, windowsize, 10.0, max_depth=4, learning_rate=0.1,
+    alg_func = lambda min_samples_split, min_samples_leaf, params: create_tsfresh_windowed_regression(params, n_estimators, windowsize, 10.0, max_depth=4, learning_rate=0.1,
                                                                                                             loss = "quantile", alpha = 0.05, min_samples_split=3, min_samples_leaf=min_samples_leaf)
     
-    alg_func_median = lambda min_samples_split, min_samples_leaf, params: create_tsfresh_windowed_regression(params, n_estimators, windowsize, 10.0, max_depth=4, learning_rate=0.1,
-                                                                                                  loss = "quantile", alpha = 0.5, min_samples_split=3, min_samples_leaf=min_samples_leaf)
-    
-    alg_func_upper = lambda min_samples_split, min_samples_leaf, params: create_tsfresh_windowed_regression(params, n_estimators, windowsize, 10.0, max_depth=4, learning_rate=0.1,
-                                                                                                 loss = "quantile", alpha = 0.95, min_samples_split=3, min_samples_leaf=min_samples_leaf)
-    
-    individual_results, stats_results = test_regression_intervals(id_code, alg_name, alg_func_lower, alg_func_median, alg_func_upper,
-                                                          fig_filename_func, individual_results, expt_config, stats_results, alg_param1=param1, alg_param2=param2)
+    individual_results, stats_results = test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_func, individual_results, expt_config, stats_results, alg_param1=param1, alg_param2=param2)
     
     results_file = name_base + "-" + alg_name + "-res.csv"
     summary_file = name_base + "-" + alg_name + "-summary-stats.csv"
