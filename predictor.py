@@ -58,6 +58,9 @@ import psutil
 import tracemalloc
 import structlog
 import logging
+import analyse_pareto_fronts
+
+import data_loader
 
 from ngboost import NGBRegressor
 from ngboost.distns import Exponential, Normal
@@ -123,6 +126,9 @@ class PSUtilMemoryTracker(MemoryTracker):
         log.info("Ending memory tracking")
         return self.mem_info_after.rss - self.mem_info_before.rss
 
+    def with_tracking(self, function_to_track):
+        return function_to_track()
+
 class PSUtilMemoryTrackerNoGC(PSUtilMemoryTracker):
     def __init__(self):
         super().__init__()
@@ -144,26 +150,12 @@ class FilProfilerMemoryTracker(MemoryTracker):
         return profile(function_to_track, "/tmp/fil-result")
         
 
-MEMORY_TRACKING_CLASS = FilProfilerMemoryTracker
+MEMORY_TRACKING_CLASS = PSUtilMemoryTracker
   
 #def process_memory():
 #    process = psutil.Process(os.getpid())
 #    mem_info = process.memory_info()
 #    return mem_info.rss
-
-def load_individual_instance(filename, needed_columns):
-    df = pd.read_csv(filename)
-    for col in needed_columns:
-        if not (col in df.columns):
-            df[col] = 0.0
-            # Ensure all the columns are in the correct order!
-    return df[needed_columns]
-
-def create_combined_data(base_dir, filenames, needed_columns):
-    combined_data_m = map(lambda file: load_individual_instance(base_dir + "/" + file, needed_columns), filenames)
-    combined_data = list(combined_data_m)
-    print("Check data: ",check_raise(combined_data, mtype="df-list"))
-    return combined_data
 
 def run_regression_or_classifier(regression, pipeline_gen_func, alg_name, params):
     base_dir = params["base_dir"]
@@ -175,12 +167,14 @@ def run_regression_or_classifier(regression, pipeline_gen_func, alg_name, params
     needed_columns = params["needed_columns"]
     alg_name = params["target_metric_name"]
         
-    train_data = create_combined_data(base_dir, data_files_train, needed_columns)
-    test_data = create_combined_data(base_dir, data_files_test, needed_columns)
+    train_data = data_loader.create_combined_data(base_dir, data_files_train, needed_columns)
+    test_data = data_loader.create_combined_data(base_dir, data_files_test, needed_columns)
     metrics_train = np.array(metrics_train_pandas[target_metric_name])
     metrics_test =  np.array(metrics_test_pandas[target_metric_name])
     log.debug("Check data format train_metrics: %s",check_raise(metrics_test, mtype="np.ndarray"))
     log.debug("Check data format test_metrics: %s",check_raise(metrics_train, mtype="np.ndarray"))
+
+    log.debug("needed_columns=" + str(needed_columns))
 
     if regression:
         # regressor
@@ -256,8 +250,8 @@ def run_regression_intervals(pipeline_gen_func_lower, pipeline_gen_func_median, 
     needed_columns = params["needed_columns"]
     alg_name = params["target_metric_name"]
         
-    train_data = create_combined_data(base_dir, data_files_train, needed_columns)
-    test_data = create_combined_data(base_dir, data_files_test, needed_columns)
+    train_data = data_loader.create_combined_data(base_dir, data_files_train, needed_columns)
+    test_data = data_loader.create_combined_data(base_dir, data_files_test, needed_columns)
     metrics_train = np.array(metrics_train_pandas[target_metric_name])
     metrics_test = np.array(metrics_test_pandas[target_metric_name])
     log.debug("Check data format train_metrics: %s",check_raise(metrics_test, mtype="np.ndarray"))
@@ -459,10 +453,6 @@ def create_tsfresh_windowed_classifier_rocketvars(params, n_estimators, windowsi
     pipeline = make_pipeline(features, StandardScaler(with_mean=False), gclassifier)
     return pipeline
 
-def create_hivecote2():
-    hive_cote = HIVECOTEV2()
-    return hive_cote
-
 def create_rocket(num_kernels, max_alpha):
     rocket_pipeline = make_pipeline(Rocket(num_kernels=num_kernels, n_jobs=-1), StandardScaler(with_mean=False), RidgeCV(alphas=(0.1, 1.0, max_alpha))) 
     return rocket_pipeline
@@ -585,11 +575,6 @@ def plot_confusion_matrix(predicted_vs_actual, filename="confusion.pdf", normali
     cmd.plot()
     plt.savefig(filename)
     return None
-
-def read_data(results_directory, mfile):
-    data_files = list(map(os.path.basename, sorted(glob.glob(results_directory + "/*Test*"))))
-    metrics = pd.read_csv(mfile)
-    return data_files, metrics
 
 def test_regression(id_code, result_desc, alg_name, alg_func, fig_filename_func, pd_res, expt_config, summary_res, alg_param1, alg_param2, k=5):
     params = {}
@@ -1115,8 +1100,7 @@ def run_test_ngboost_intervals(alg_name, expt_config):
     # min_samples_split
     param1 = 3
     # min_leaf_split
-    param2 = 1
-    
+
     fig_filename_func = lambda id_num, k_split: name_base + "-" + alg_name + "-ID" + str(id_num) + "-" + str(param1) + "-" + str(param2) + "-" + "k_split" + str(k_split) +".png"
     
     alg_func = lambda min_samples_split, min_samples_leaf, params: create_tsfresh_windowed_regression(params, n_estimators, windowsize, 10.0, max_depth=4, learning_rate=0.1,
@@ -1130,3 +1114,5 @@ def run_test_ngboost_intervals(alg_name, expt_config):
     stats_results.to_csv(summary_file, sep=",")
     print(tabulate(stats_results, headers="keys"))
     print(tabulate(individual_results, headers="keys"))
+
+

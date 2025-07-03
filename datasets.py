@@ -20,19 +20,76 @@ expt_config_mycobot_fourjoints_3000 = {
 } 
 
 ################################################################################
-# ETERRY
+# ETERRY new June 2025
+################################################################################
+data_dir_base_eterry_human1_1100 = "./input_csv_data/eterry-tenfiles-human1"
+data_dir_base_eterry_statichumans_1100 = "./input_csv_data/eterry-tenfiles-statichumans"
+data_dir_base_eterry_pathcompletion_1100 = "./input_csv_data/eterry-tenfiles-pathcompletion"
+
+eterry_ops = ["deletePointCloud", "delayPointCloud", "changeHumanXStep_zero", "humanPos2Offset", "humanPos3Offset"]
+
+expt_config_eterry_human1_1100 = {
+    "dataset_name" : "ETERRY-Human1Dist",
+    "data_dir_base" : data_dir_base_eterry_human1_1100,
+    "target_metric_name" : "distanceToHuman1", 
+    "needed_columns" : eterry_ops,
+    "plot_x_lower" : 0.0,
+    "plot_x_upper" : 10.0,
+    "plot_y_lower" : 0.0,
+    "plot_y_upper" : 10.0,
+    "regression_graph_title" : "Predicted vs actual human-robot distance for mobile human (human1)",
+    "regression_graph_x" : "Predicted value of the ETERRY-human1 distance",
+    "regression_graph_y" : "Actual value of the ETERRY-human1 distance",
+    "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
+    "use_fixed_windows" : False
+}
+
+expt_config_eterry_statichumans_1100 = {
+    "dataset_name" : "ETERRY-StaticHumanDist",
+    "data_dir_base" : data_dir_base_eterry_statichumans_1100,
+    "target_metric_name" : "distanceToStaticHumans",
+    "needed_columns" : eterry_ops,
+    "plot_x_lower" : 0.0,
+    "plot_x_upper" : 4.0,
+    "plot_y_lower" : 0.0,
+    "plot_y_upper" : 4.0,
+    "regression_graph_title" : "Predicted vs actual human-robot distance for static humans (human2+human3)",
+    "regression_graph_x": "Predicted value of the ETERRY-humans distance",
+    "regression_graph_y": "Actual value of the ETERRY-humans distance",
+    "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
+    "use_fixed_windows" : False
+}
+
+expt_config_eterry_pathcompletion_1100 = {
+    "dataset_name" : "ETERRY-PathCompletion",
+    "data_dir_base" : data_dir_base_eterry_pathcompletion_1100,
+    "target_metric_name" : "pathCompletion", 
+    "needed_columns" : eterry_ops,
+    "plot_x_lower" : 0.0,
+    "plot_x_upper" : 1.0,
+    "plot_y_lower" : 0.0,
+    "plot_y_upper" : 1.0,
+    "regression_graph_title" : "Predicted vs actual path completion for ETERRY robot",
+    "regression_graph_x": "Predicted value of the path completion",
+    "regression_graph_y": "Actual value of the path completion",
+    "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
+    "use_fixed_windows" : False
+}
+
+################################################################################
+# ETERRY old
 ################################################################################
 data_dir_base_eterry_humandist_1800 = "./input_csv_data/eterry-1800-humandist"
 data_dir_base_eterry_robotdist_1800 = "./input_csv_data/eterry-1800-robotdist"
 
-eterry_ops = ["deletePointCloud", "changeHumanXStep"]
+eterry_old_ops = ["deletePointCloud", "changeHumanXStep"]
 
 ##### ETERRY HUMANDIST1
 expt_config_eterry_humandist_1800 = {
     "dataset_name" : "ETERRY-HumanDist",
     "data_dir_base" : data_dir_base_eterry_humandist_1800,
     "target_metric_name" : "distanceToHuman1", 
-    "needed_columns" : eterry_ops,
+    "needed_columns" : eterry_old_ops,
     "plot_x_lower" : 0.0,
     "plot_x_upper" : 9.0,
     "plot_y_lower" : 0.0,
@@ -47,7 +104,7 @@ expt_config_eterry_robotdist_1800 = {
     "dataset_name" : "ETERRY-RobotDist",
     "data_dir_base" : data_dir_base_eterry_robotdist_1800,
     "target_metric_name" : "robotDistanceAtEnd", 
-    "needed_columns" : eterry_ops,
+    "needed_columns" : eterry_old_ops,
     "plot_x_lower" : 0.0,
     "plot_x_upper" : 22.0,
     "plot_y_lower" : 0.0,
