@@ -1,3 +1,4 @@
+from ngboost.scores import CRPScore
 from sktime.datatypes import check_raise, convert_to
 from sktime.transformations.panel.rocket import Rocket, MiniRocket, MiniRocketMultivariate, MultiRocketMultivariate
 from sktime.transformations.panel.summarize import RandomIntervalFeatureExtractor
@@ -156,6 +157,9 @@ MEMORY_TRACKING_CLASS = PSUtilMemoryTracker
 #    process = psutil.Process(os.getpid())
 #    mem_info = process.memory_info()
 #    return mem_info.rss
+
+def metricval_to_class(metricval):
+    return metricval
 
 def run_regression_or_classifier(regression, pipeline_gen_func, alg_name, params):
     base_dir = params["base_dir"]
@@ -613,7 +617,10 @@ def test_regression(id_code, result_desc, alg_name, alg_func, fig_filename_func,
 
 #       pipeline, r2_score_from_reg, predicted_vs_actual = run_regression_or_classifier(True, alg_func_delayed, alg_name, params)
         pipeline, r2_score_from_reg, predicted_vs_actual = memory_tracker.with_tracking(lambda: run_regression_or_classifier(True, alg_func_delayed, alg_name, params))
-        
+
+        predictor_save_filename = expt_config["predictor_save_filename"]
+        data_loader.save_predictor_to_file(predictor_save_filename, pipeline)
+
         time_end = timer()
         time_diff = time_end - time_start
         memory_used = memory_tracker.end_tracking()
@@ -700,7 +707,7 @@ def test_regression_intervals(id_code, alg_name, alg_func_lower, alg_func_median
     params["target_metric_name"] = expt_config["target_metric_name"]
     params["needed_columns"] = expt_config["needed_columns"]    
     mfile = expt_config["data_dir_base"] + "/metrics.csv"
-    data_files, metrics = read_data(expt_config["data_dir_base"], mfile)
+    data_files, metrics = data_loader.read_data(expt_config["data_dir_base"], mfile)
 
     alg_func_delayed_lower = lambda params: alg_func_lower(alg_param1, alg_param2, params)
     alg_func_delayed_median = lambda params: alg_func_median(alg_param1, alg_param2, params)
@@ -793,7 +800,7 @@ def test_classification(id_code, alg_name, alg_func, fig_filename_func, pd_res, 
     params["class_count"] = None
     
     mfile = expt_config["data_dir_base"] + "/metrics.csv"
-    data_files, metrics = read_data(expt_config["data_dir_base"], mfile)
+    data_files, metrics = data_loader.read_data(expt_config["data_dir_base"], mfile)
 
     alg_func_delayed = lambda params: alg_func(alg_param1, alg_param2, params)
 
@@ -940,7 +947,7 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
     params["target_metric_name"] = expt_config["target_metric_name"]
     params["needed_columns"] = expt_config["needed_columns"]    
     mfile = expt_config["data_dir_base"] + "/metrics.csv"
-    data_files, metrics = read_data(expt_config["data_dir_base"], mfile)
+    data_files, metrics = data_loader.read_data(expt_config["data_dir_base"], mfile)
     target_metric_name = expt_config["target_metric_name"]
 
     alg_func_delayed = lambda params: alg_func(alg_param1, alg_param2, params)
@@ -973,8 +980,8 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
         # fit ngboost using the ngboost example
         # performance testing using this
 
-        train_data = create_combined_data(base_dir, data_files_train, needed_columns)
-        test_data = create_combined_data(base_dir, data_files_test, needed_columns)
+        train_data = data_loader.create_combined_data(base_dir, data_files_train, needed_columns)
+        test_data = data_loader.create_combined_data(base_dir, data_files_test, needed_columns)
         metrics_train = np.array(metrics_train_pandas[target_metric_name])
         metrics_test =  np.array(metrics_test_pandas[target_metric_name])
         log.debug("Check data format train_metrics: %s",check_raise(metrics_test, mtype="np.ndarray"))

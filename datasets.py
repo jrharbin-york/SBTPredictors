@@ -41,6 +41,7 @@ expt_config_eterry_human1_1100 = {
     "regression_graph_x" : "Predicted value of the ETERRY-human1 distance",
     "regression_graph_y" : "Actual value of the ETERRY-human1 distance",
     "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
+    "predictor_save_filename" : "eterry-human1-dist.predictor",
     "use_fixed_windows" : False
 }
 
@@ -57,6 +58,7 @@ expt_config_eterry_statichumans_1100 = {
     "regression_graph_x": "Predicted value of the ETERRY-humans distance",
     "regression_graph_y": "Actual value of the ETERRY-humans distance",
     "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
+    "predictor_save_filename" : "eterry-statichumans-dist.predictor",
     "use_fixed_windows" : False
 }
 
@@ -73,6 +75,7 @@ expt_config_eterry_pathcompletion_1100 = {
     "regression_graph_x": "Predicted value of the path completion",
     "regression_graph_y": "Actual value of the path completion",
     "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
+    "predictor_save_filename" : "eterry-pathcompletion.predictor",
     "use_fixed_windows" : False
 }
 

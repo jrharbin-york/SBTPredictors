@@ -29,12 +29,12 @@ def load_predictor_from_file(trained_predictor_filename):
     file = open(trained_predictor_filename, mode="rb")
     trained_predictor = pickle.load(file)
     file.close()
-    log.debug(f"Loaded the predictor from #{trained_predictor_filename}")
+    log.debug(f"Loaded the predictor from " + str(trained_predictor_filename))
     return trained_predictor
 
 def save_predictor_to_file(trained_predictor_filename, predictor):
     """Load the predictor from the given files"""
     file = open(trained_predictor_filename, mode="wb")
-    pickle.dump(predictor, trained_predictor_filename)
+    pickle.dump(predictor, file)
     file.close()
-    log.debug(f"Saved the predictor to #{trained_predictor_filename}")
+    log.debug(f"Saved the predictor to " + str(trained_predictor_filename))

@@ -9,6 +9,7 @@ from pymoo.indicators.igd import IGD
 from pymoo.indicators.hv import HV
 import paretoset
 import data_loader
+import datasets
 
 log = structlog.get_logger()
 
@@ -163,13 +164,21 @@ def evaluate_decision_nodes_front_quality(test_ids, metrics_test_df, metric_colu
     log.info("Front for all tests:", front_all_tests)
     log.info("Quality indicators:" , str(quality_indicators))
     # Then test the possible decision nodes
+
+    decision_node_results = {}
+
     for decision_node in decision_nodes:
         front_with_decisions = front_from_decision_node(test_ids, metrics_test_df, metric_columns_direction, predictors, decision_node, metric_columns_direction)
         quality_indicators_for_front = indicators_for_front(front_with_decisions, front_all_tests, metric_columns_direction)
         log.info("Front with the decision nodes:", front_with_decisions)
+        decision_node_results[decision_node] = {}
 
-def test_predictor_on_fronts(expt_config, human1_predfile, statichumans_predfile, path_predfile):
-    # Load predictors from files  - for all 3 metrics
+def test_evaluate_predictor_decisions_for_experiment(expt_config):
+    # Load predictors from files - seperate predictor for all 3 metrics
+    human1_predfile = "eterry-human1-dist.predictor"
+    statichumans_predfile = "eterry-statichumans-dist.predictor"
+    path_predfile = "eterry-pathcompletion.predictor"
+
     predictors_for_cols = { "distanceToHuman1" : data_loader.load_predictor_from_file(human1_predfile),
                             "distanceToStaticHumans" : data_loader.load_predictor_from_file(statichumans_predfile),
                             "pathCompletion": data_loader.load_predictor_from_file(path_predfile) }
@@ -200,3 +209,6 @@ def test_predictor_on_fronts(expt_config, human1_predfile, statichumans_predfile
         decision_node = FixedThresholdBasedDecisionNode(target_metric_ids, thresholds, False)
         decision_nodes = [decision_node]
         evaluate_decision_nodes_front_quality(test_ids, metrics_test_df, metric_columns_direction, predictors_for_cols, decision_nodes)
+
+def main():
+    test_evaluate_predictor_decisions_for_experiment(datasets.expt_config_eterry_human1_1100)
