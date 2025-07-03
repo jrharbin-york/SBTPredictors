@@ -584,7 +584,7 @@ def test_regression(id_code, result_desc, alg_name, alg_func, fig_filename_func,
     params["needed_columns"] = expt_config["needed_columns"]
 
     mfile = expt_config["data_dir_base"] + "/metrics.csv"
-    data_files, metrics = read_data(expt_config["data_dir_base"], mfile)
+    data_files, metrics = data_loader.read_data(expt_config["data_dir_base"], mfile)
     alg_func_delayed = lambda params: alg_func(alg_param1, alg_param2, params)
  
     k=5

@@ -1,6 +1,6 @@
 from sktime.datatypes import check_raise, convert_to
 import pandas as pd
-import pickle
+import pickle, os, glob
 import structlog
 
 log = structlog.get_logger()
