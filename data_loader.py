@@ -15,7 +15,9 @@ def load_individual_instance(filename, needed_columns):
 
 def read_data(results_directory, mfile):
     data_files = list(map(os.path.basename, sorted(glob.glob(results_directory + "/*Test*"))))
-    metrics = pd.read_csv(mfile)
+    metrics_orig = pd.read_csv(mfile)
+    # Ensure NaN column is removed
+    metrics = metrics_orig.dropna(axis=1, how="all")
     return data_files, metrics
 
 def create_combined_data(base_dir, filenames, needed_columns):

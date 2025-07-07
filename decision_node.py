@@ -1,4 +1,4 @@
-from abc import ABC, ABCMeta, abstractmethod
+from abc import ABCMeta, abstractmethod
 
 class MissingMetric(LookupError):
     """Raised when a metric is not present - because a predictor was not available for it"""
@@ -7,6 +7,9 @@ class MissingThreshold(LookupError):
         """Raised when a metric is not present - because a predictor was not available for it"""
 
 class DecisionNode(metaclass=ABCMeta):
+    def __init__(self):
+        self.front_all_tests = None
+
     @abstractmethod
     def execute_or_not(self, test_id, predicted_metrics):
         pass
@@ -14,14 +17,19 @@ class DecisionNode(metaclass=ABCMeta):
     def accept_test(self, test_id, test_metrics):
         pass
 
+    def register_front_all_tests(self, front_all_tests):
+        self.front_all_tests = front_all_tests
+
 class NullDecisionNode(DecisionNode):
     """Null decision node just includes every test"""
+
     def execute_or_not(self, test_id, predicted_metrics):
         return True
 
 class FixedThresholdBased(DecisionNode):
     """Uses a single fixed value for each metric for the decision threshold"""
     def __init__(self, target_metric_ids, metrics_needed, thresholds, greater_than):
+        super().__init__()
         self.target_metric_ids = target_metric_ids
         self.thresholds = thresholds
         self.greater_than = greater_than
@@ -52,18 +60,18 @@ class FixedThresholdBased(DecisionNode):
 
 # TODO: simulated annealing decision node
 class SimulatedAnnealingThreshold(DecisionNode):
-    pass
+    def execute_or_not(self, test_id, predicted_metrics):
+        pass
 
 # Indicator-based decision node
 class IndicatorBasedDecisions(DecisionNode):
-    def __init__(self, target_indicator, decision_analysis, front_all_tests):
-        self.target_indicator = target_indicator
+    def __init__(self, target_indicator_object, decision_analysis):
+        super().__init__()
+        self.target_indicator_object = target_indicator_object
         self.current_best_front = None
         self.indicator_id = "HV"
         self.best_indicator_value = None
         self.decision_analysis = decision_analysis
-        # TODO: need to know the front for all tests here!
-        self.front_all_tests = self.front_all_tests
 
     def execute_or_not(self, test_id, predicted_test_metrics):
         if self.best_indicator_value is None:
@@ -74,7 +82,7 @@ class IndicatorBasedDecisions(DecisionNode):
             # If so, accept it
             potential_front_plus_new_test = self.current_best_front.append(predicted_test_metrics)
             hypothetical_front = self.decision_analysis.compute_front_from_tests(potential_front_plus_new_test)
-            quality_indicators_with_new_test = self.decision_analysis.indicators_for_front(hypothetical_front, front_all_tests)
+            quality_indicators_with_new_test = self.decision_analysis.indicators_for_front(hypothetical_front, self.front_all_tests)
             quality_for_indicator = quality_indicators_with_new_test[self.indicator_id]
             if quality_for_indicator > self.best_indicator_value:
                 # TODO: do we change current_best_front here or in accept_test?

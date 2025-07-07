@@ -8,7 +8,7 @@ from pymoo.indicators.hv import HV
 import paretoset
 import data_loader
 import datasets
-from decision_node import FixedThresholdBased, MissingMetric
+from decision_node import FixedThresholdBased, MissingMetric, NullDecisionNode
 
 log = structlog.get_logger()
 
@@ -66,25 +66,25 @@ class DecisionNodeAnalysis:
         ref_point = self.max_point_from_all_fronts([front, ref_front])
 
         hv_ind = HV(ref_point=ref_point)
-        igd_ind = IGD(front)
+        igd_ind = IGD(ref_front)
         hv_val = hv_ind(front)
-        igd_val = igd_ind(ref_front)
+        igd_val = igd_ind(front)
         print(f"HV = {hv_val},IGD = {igd_val}")
         front_info = {"hypervolume": hv_val, "igd": igd_val}
         return front_info
 
-    def indicators_for_multiple_fronts(self, fronts, selected_cols):
-        """Compute the IGD and reference front"""
-        #Reference point is obtained as the max point from all fronts
-        # compute the reference point and reference front from all the front contents?
-        ref_point = self.max_point_from_all_fronts(fronts)
-        # Assumes the reference front is the first
-        ref_front = fronts[0]
-        all_fronts_indicators = {}
-
-        for front_pandas in fronts:
-            all_fronts_indicators[front_pandas] = self.indicators_for_front(front_pandas, ref_front)
-        return all_fronts_indicators
+#   def indicators_for_multiple_fronts(self, fronts, selected_cols):
+#       """Compute the IGD and reference front"""
+#       #Reference point is obtained as the max point from all fronts
+#       # compute the reference point and reference front from all the front contents?
+#       ref_point = self.max_point_from_all_fronts(fronts)
+#       # Assumes the reference front is the first
+#       ref_front = fronts[0]
+#       all_fronts_indicators = {}
+#
+#       for front_pandas in fronts:
+#          all_fronts_indicators[front_pandas] = self.indicators_for_front(front_pandas, ref_front)
+#       return all_fronts_indicators
 
     def load_test_definition(self, test_id):
         filepath = self.base_files_dir + "/" + test_id
@@ -101,7 +101,7 @@ class DecisionNodeAnalysis:
 
     def choose_tests_from_decision_node(self, actual_test_metrics, predictors, decision_node):
         tests_chosen_rows = []
-        tests_chosen = pd.DataFrame([], columns=actual_test_metrics.columns)
+        #tests_chosen = pd.DataFrame([], columns=actual_test_metrics.columns)
         try:
             for test_index, test_metrics in actual_test_metrics.iterrows():
                 # get the test prediction for test N
@@ -127,7 +127,9 @@ class DecisionNodeAnalysis:
 
         # Then test the possible decision nodes
         decision_node_results = {}
+
         for decision_node in decision_nodes:
+            decision_node.register_front_all_tests(front_all_tests)
             chosen_by_decision_node = self.choose_tests_from_decision_node(self.metrics_test_df, predictors, decision_node)
             tests_chosen_count = len(chosen_by_decision_node)
             front_with_decisions = self.compute_front_from_tests(chosen_by_decision_node)
@@ -137,6 +139,7 @@ class DecisionNodeAnalysis:
                                                     "front_all_tests" : front_all_tests,
                                                     "front_all_tests_size" : len(front_all_tests),
                                                     "tests_chosen_count" : tests_chosen_count,
+                                                    "all_tests_count" : len(self.metrics_test_df),
                                                     "quality_indicators_all_tests" : quality_indicators_all_tests,
                                                     "front_from_decision_node" : front_with_decisions,
                                                     "front_from_decision_node_size": len(front_with_decisions),
@@ -145,9 +148,9 @@ class DecisionNodeAnalysis:
 
 def test_evaluate_predictor_decisions_for_experiment(expt_config):
     # Load predictors from files - seperate predictor for all 3 metrics
-    human1_predfile = "eterry-human1-dist.predictor"
-    statichumans_predfile = "eterry-statichumans-dist.predictor"
-    path_predfile = "eterry-pathcompletion.predictor"
+    human1_predfile = "./temp-saved-predictors/eterry-human1-dist.predictor"
+    statichumans_predfile = "./temp-saved-predictors/eterry-statichumans-dist.predictor"
+    path_predfile = "./temp-saved-predictors/eterry-pathcompletion.predictor"
 
     predictors_for_cols = { "distanceToHuman1" : data_loader.load_predictor_from_file(human1_predfile),
                             "distanceToStaticHumans" : data_loader.load_predictor_from_file(statichumans_predfile),
@@ -165,11 +168,6 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
     kf = KFold(n_splits=k, shuffle=True)
     for i, (train_index, test_index) in enumerate(kf.split(data_files)):
         metrics_test_df = all_metrics.iloc[test_index]
-        test_ids = None
-
-        metric_columns_direction = { "distanceToHuman1" : "min",
-                                     "distanceToStaticHumans" : "min",
-                                     "pathCompletion": "min" }
 
         thresholds = { "distanceToHuman1" : 3.0,
                        "distanceToStaticHumans" : 2.0,
@@ -180,8 +178,9 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
         needed_operations = expt_config["needed_columns"]
         base_files_dir = expt_config["data_dir_base"]
         analyser = DecisionNodeAnalysis(base_files_dir, metrics_test_df, metric_columns_direction, needed_operations)
-        decision_node = FixedThresholdBased(target_metric_ids, 2, thresholds, False)
-        decision_nodes = [decision_node]
+        null_decision_node = NullDecisionNode()
+        fixed_threshold_decision_node = FixedThresholdBased(target_metric_ids, 2, thresholds, False)
+        decision_nodes = [null_decision_node, fixed_threshold_decision_node]
         decision_node_res = analyser.evaluate_decision_nodes_front_quality(predictors_for_cols, decision_nodes)
         decision_nodes_info_for_splits[i] = decision_node_res
 
@@ -190,7 +189,7 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
         for decision_node, decision_node_res in decision_nodes_info.items():
             res = decision_node_res
             log.info(f"decision_node = {decision_node}, split_index = {split_index}")
-            log.info(f"tests_chosen_count = {res["tests_chosen_count"]}, front_all_tests_size = {res["front_all_tests_size"]},  front_from_decision_node_size = {res["front_from_decision_node_size"]}, quality_all_tests = {res["quality_indicators_all_tests"]}, quality_tests_chosen={res["quality_indicators_for_front"]}")
+            log.info(f"all_tests_count = {res["all_tests_count"]}, front_all_tests_size = {res["front_all_tests_size"]}, quality_all_tests = {res["quality_indicators_all_tests"]}, tests_chosen_count = {res["tests_chosen_count"]}, front_from_decision_node_size = {res["front_from_decision_node_size"]}, , quality_tests_chosen={res["quality_indicators_for_front"]}")
     return decision_nodes_info_for_splits
 
 if __name__ == '__main__':
