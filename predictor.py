@@ -612,6 +612,7 @@ def test_regression(id_code, result_desc, alg_name, alg_func, fig_filename_func,
         fig_filename = fig_filename_func(id_code, i)
 
         memory_tracker = MEMORY_TRACKING_CLASS()
+        memory_tracker = MEMORY_TRACKING_CLASS()
         memory_tracker.start_tracking()
         time_start = timer()
 

@@ -1,8 +1,6 @@
-from abc import ABC, ABCMeta, abstractmethod
 from sklearn.model_selection import KFold
 
 import structlog
-import pymoo
 import pandas as pd
 import numpy as np
 from pymoo.indicators.igd import IGD
@@ -10,168 +8,140 @@ from pymoo.indicators.hv import HV
 import paretoset
 import data_loader
 import datasets
+from decision_node import FixedThresholdBased, MissingMetric
 
 log = structlog.get_logger()
-
-# TODO: metrics_test dataframe needs to include all metrics for the test - change Java code correspondingly
-def compute_front_from_tests(metric_tests, metric_columns_direction):
-    # columns_direction is a hashtable of column name to either 'max' or 'min'
-    metric_cols_chosen = list(metric_columns_direction.keys)
-    metric_tests_metricsonly = metric_tests[metric_cols_chosen]
-    # Computes the front from the given metric_test, inverting if the columns chosen are flipped
-    mask = paretoset.paretoset(metric_tests_metricsonly, sense=metric_columns_direction[metric_cols_chosen])
-    selected_tests = metric_tests[mask]
-    return selected_tests
-
-def compute_front_quality_indications(front):
-    pass
-
-def max_point_from_front(front, metric_column_direction):
-    # TODO: check that this is using the max_point properly
-    metric_names = metric_column_direction.keys
-    point_coords = np.array([])
-    for n in metric_names:
-        point_coords = np.append(point_coords, np.max(front[n]))
-    return np.array(point_coords)
-
-
-def max_point_from_all_fronts(front_list):
-    max_points_2d = np.column_stack(list(map(lambda pf: max_point_from_front(pf), front_list)))
-    max_of_all = np.amax(max_points_2d, axis=1)
-    return max_of_all
-
-
-def front_to_numpy_array(front, metric_columns_direction):
-    selected_cols = list(metric_columns_direction.keys)
-    # TODO: invert cols according to the direction value
-    return front[selected_cols].to_numpy()
-
-
-def indicators_for_front(front, ref_front, metric_columns_direction):
-    # Compute the IGD and reference front
-    # Reference point is obtained as the max point from all fronts
-
-    # compute the reference point and reference front from all the front contents?
-
-    ref_point = max_point_from_all_fronts([front, ref_front])
-    all_fronts_indicators = {}
-
-    # Get front as numpy array
-    front_np = front_to_numpy_array(front, metric_columns_direction)
-    hv_ind = HV(ref_point=ref_point)
-    igd_ind = IGD(ref_front)
-    hv_val = hv_ind(front)
-    igd_val = igd_ind(front)
-    print("HV = " + str(hv_val) + "IGD = " + str(igd_val))
-    front_info = {"hypervolume": hv_val, "igd": igd_val}
-    return front_info
-
-
-def indicators_for_multiple_fronts(fronts, selected_cols):
-    """Compute the IGD and reference front"""
-    #Reference point is obtained as the max point from all fronts
-
-    # compute the reference point and reference front from all the front contents?
-
-    ref_point = max_point_from_all_fronts(fronts)
-    # Assumes the reference front is the first
-    ref_front = fronts[0]
-    all_fronts_indicators = {}
-
-    for front_pandas in fronts:
-        all_fronts_indicators[front_pandas] = indicators_for_front(front_pandas, ref_front, selected_cols)
-    return all_fronts_indicators
-
-class MissingMetric(LookupError):
-    """Raised when a metric is not present - because a predictor was not available for it"""
-
-class MissingThreshold(LookupError):
-        """Raised when a metric is not present - because a predictor was not available for it"""
 
 class FrontCalculationFailed(Exception):
     """Calculation of a front failed"""
 
-class DecisionNode(metaclass=ABCMeta):
-    @abstractmethod
-    def execute_or_not(self, test_id, test_metrics):
-        pass
+class DecisionNodeAnalysis:
+    def __init__(self, base_files_dir, metrics_test_df, metric_columns_direction, needed_operations):
+        # Hash of the column name and direction - either "max" or "min"
+        self.base_files_dir = base_files_dir
+        self.metrics_test_df = metrics_test_df
+        self.metric_columns_direction = metric_columns_direction
+        self.needed_operations = needed_operations
+        self.metric_cols_chosen = list(metric_columns_direction.keys())
 
-# Null decision node just includes everything
-class NullDecisionNode(DecisionNode):
-    def execute_or_not(self, test_id, test_metrics):
-        return True
+    def compute_front_from_tests(self, metric_tests):
+        # columns_direction is a hashtable of column name to either 'max' or 'min'
+        print(self.metric_columns_direction)
+        directions = [self.metric_columns_direction[k] for k in self.metric_cols_chosen]
+        print(metric_tests)
+        if len(metric_tests) > 0:
+            metric_tests_metricsonly = metric_tests[self.metric_cols_chosen]
+            # Computes the front from the given metric_test, inverting if the columns chosen are flipped
+            mask = paretoset.paretoset(metric_tests_metricsonly, sense=directions)
+            selected_tests = metric_tests[mask]
+            return selected_tests
+        else:
+            return pd.DataFrame([], columns=self.metric_cols_chosen)
 
-# Uses a single fixed value for each metric for the decision threshold
-class FixedThresholdBasedDecisionNode(DecisionNode):
-    def __init__(self, target_metric_ids, thresholds, greater_than):
-        self.target_metric_ids = target_metric_ids
-        self.thresholds = thresholds
-        self.greater_than = greater_than
+    def max_point_from_front(self, front):
+        # TODO: check that this is using the max_point properly
+        metric_names = self.metric_cols_chosen
+        point_coords = np.array([])
+        for i in range(0,len(metric_names)):
+            point_coords = np.append(point_coords, np.max(front[:,i]))
+        return np.array(point_coords)
 
-    # Other decision nodes
-    # simulated annealing type for the population management
-    # based on indicators - e.g. would the hypervolume increase for selecting this test?
+    def max_point_from_all_fronts(self, front_list):
+        max_points_2d = np.column_stack(list(map(lambda pf: self.max_point_from_front(pf), front_list)))
+        max_of_all = np.amax(max_points_2d, axis=1)
+        return max_of_all
 
-    def execute_or_not(self, test_id, test_metrics):
-        found_count = 0
-        for m in self.target_metric_ids:
-            if test_metrics[m] is None:
-                raise MissingMetric(m)
+    def front_to_numpy_array(self,front):
+        # TODO: invert cols according to the direction value
+        return front[self.metric_cols_chosen].to_numpy()
 
-            if self.thresholds[m] is None:
-                raise MissingThreshold(m)
+    def indicators_for_front(self, front_df, ref_front_df):
+        # Compute the IGD and reference front
+        # Reference point is obtained as the max point from all fronts
+        # compute the reference point and reference front from all the front contents?
 
-            if self.greater_than:
-                if test_metrics[m] > self.thresholds[m]:
-                    found_count += 1
-            else:
-                if test_metrics[m] < self.thresholds[m]:
-                    found_count += 1
-        return found_count
+        # Get front as numpy array
+        front = self.front_to_numpy_array(front_df)
+        ref_front = self.front_to_numpy_array(ref_front_df)
+        ref_point = self.max_point_from_all_fronts([front, ref_front])
 
-def load_test_definition(test_id, needed_operations):
-    return data_loader.load_individual_instance(needed_operations)
+        hv_ind = HV(ref_point=ref_point)
+        igd_ind = IGD(front)
+        hv_val = hv_ind(front)
+        igd_val = igd_ind(ref_front)
+        print(f"HV = {hv_val},IGD = {igd_val}")
+        front_info = {"hypervolume": hv_val, "igd": igd_val}
+        return front_info
 
-def predict_for_test_id(test_id, needed_operations, predictors):
-    # TODO: call the predictors and get the results
-    metric_results = {}
-    for col_name, pipeline_gen_func in predictors:
-        print("Running predictor for ", test_id, " and column", col_name)
-        # load the specific test definition here and make the prediction
-        test_definition = load_test_definition(test_id, needed_operations)
-        metric_results[col_name] = pipeline_gen_func.predict([test_definition])
-    return metric_results
+    def indicators_for_multiple_fronts(self, fronts, selected_cols):
+        """Compute the IGD and reference front"""
+        #Reference point is obtained as the max point from all fronts
+        # compute the reference point and reference front from all the front contents?
+        ref_point = self.max_point_from_all_fronts(fronts)
+        # Assumes the reference front is the first
+        ref_front = fronts[0]
+        all_fronts_indicators = {}
 
-def front_from_decision_node(test_ids, actual_test_metrics, metric_columns_direction, needed_operations, predictors, decision_node):
-    tests_chosen = pd.DataFrame()
-    try:
-        for test_id, test_metrics in zip(test_ids, actual_test_metrics):
-            # get the test prediction for test N
-            predicted_metrics = predict_for_test_id(test_id, needed_operations, predictors)
-            should_execute = decision_node.execute_or_not(test_id, predicted_metrics)
-            if should_execute:
-                # Log the decision to choose this test
-                tests_chosen.append(test_metrics)
-        return compute_front_from_tests(tests_chosen, metric_columns_direction)
-    except MissingMetric as mmetric:
-        log.info("Metric", mmetric, " is missing")
-        raise FrontCalculationFailed(mmetric)
+        for front_pandas in fronts:
+            all_fronts_indicators[front_pandas] = self.indicators_for_front(front_pandas, ref_front)
+        return all_fronts_indicators
 
-def evaluate_decision_nodes_front_quality(test_ids, metrics_test_df, metric_columns_direction, predictors, decision_nodes):
-    # Assess the front from all tests
-    front_all_tests = compute_front_from_tests(metrics_test_df, metric_columns_direction)
-    quality_indicators = indicators_for_front(front_all_tests, front_all_tests, metric_columns_direction)
-    log.info("Front for all tests:", front_all_tests)
-    log.info("Quality indicators:" , str(quality_indicators))
-    # Then test the possible decision nodes
+    def load_test_definition(self, test_id):
+        filepath = self.base_files_dir + "/" + test_id
+        return data_loader.load_individual_instance(filepath, self.needed_operations)
 
-    decision_node_results = {}
+    def predict_for_test_id(self, test_id, predictors):
+        metric_results = {}
+        for col_name, pipeline_gen_func in predictors.items():
+            print("Running predictor for ", test_id, " and column", col_name)
+            # load the specific test definition here and make the prediction
+            test_definition = self.load_test_definition(test_id)
+            metric_results[col_name] = pipeline_gen_func.predict([test_definition])
+        return metric_results
 
-    for decision_node in decision_nodes:
-        front_with_decisions = front_from_decision_node(test_ids, metrics_test_df, metric_columns_direction, predictors, decision_node, metric_columns_direction)
-        quality_indicators_for_front = indicators_for_front(front_with_decisions, front_all_tests, metric_columns_direction)
-        log.info("Front with the decision nodes:", front_with_decisions)
-        decision_node_results[decision_node] = {}
+    def choose_tests_from_decision_node(self, actual_test_metrics, predictors, decision_node):
+        tests_chosen_rows = []
+        tests_chosen = pd.DataFrame([], columns=actual_test_metrics.columns)
+        try:
+            for test_index, test_metrics in actual_test_metrics.iterrows():
+                # get the test prediction for test N
+                test_id = test_metrics["testID"]
+                predicted_metrics = self.predict_for_test_id(test_id, predictors)
+                # can also compute intermediate indicators here from tests_chosen
+                should_execute = decision_node.execute_or_not(test_id, predicted_metrics)
+                if should_execute:
+                    # Log the decision to choose this test
+                    tests_chosen_rows.append(test_metrics)
+            tests_chosen = pd.DataFrame(tests_chosen_rows)
+            return tests_chosen
+        except MissingMetric as mmetric:
+            log.info("Metric", mmetric, " is missing")
+            raise FrontCalculationFailed(mmetric)
+
+    def evaluate_decision_nodes_front_quality(self, predictors, decision_nodes):
+        # Assess the front from all tests
+        front_all_tests = self.compute_front_from_tests(self.metrics_test_df)
+        log.debug(f"Front from all tests:\n {front_all_tests}")
+        quality_indicators_all_tests = self.indicators_for_front(front_all_tests, front_all_tests)
+        log.debug(f"Quality indicators: {quality_indicators_all_tests}")
+
+        # Then test the possible decision nodes
+        decision_node_results = {}
+        for decision_node in decision_nodes:
+            chosen_by_decision_node = self.choose_tests_from_decision_node(self.metrics_test_df, predictors, decision_node)
+            tests_chosen_count = len(chosen_by_decision_node)
+            front_with_decisions = self.compute_front_from_tests(chosen_by_decision_node)
+            quality_indicators_for_front = self.indicators_for_front(front_with_decisions, front_all_tests)
+            log.info(f"Front generate with the decision node {decision_node}:\n {front_with_decisions}")
+            decision_node_results[decision_node] = {"decision_node" : decision_node,
+                                                    "front_all_tests" : front_all_tests,
+                                                    "front_all_tests_size" : len(front_all_tests),
+                                                    "tests_chosen_count" : tests_chosen_count,
+                                                    "quality_indicators_all_tests" : quality_indicators_all_tests,
+                                                    "front_from_decision_node" : front_with_decisions,
+                                                    "front_from_decision_node_size": len(front_with_decisions),
+                                                    "quality_indicators_for_front" : quality_indicators_for_front }
+        return decision_node_results
 
 def test_evaluate_predictor_decisions_for_experiment(expt_config):
     # Load predictors from files - seperate predictor for all 3 metrics
@@ -187,28 +157,41 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
                                  "distanceToStaticHumans" : "min",
                                  "pathCompletion": "min" }
 
-    mfile = expt_config["data_dir_base"] + "/metrics.csv"
-    data_files, metrics = data_loader.read_data(expt_config["data_dir_base"], mfile)
+    all_metrics_file = expt_config["data_dir_base"] + "/allMetrics.csv"
+    data_files, all_metrics = data_loader.read_data(expt_config["data_dir_base"], all_metrics_file)
+    decision_nodes_info_for_splits = {}
 
     k = 5
     kf = KFold(n_splits=k, shuffle=True)
     for i, (train_index, test_index) in enumerate(kf.split(data_files)):
-        metrics_test_df = metrics.iloc[test_index]
+        metrics_test_df = all_metrics.iloc[test_index]
         test_ids = None
 
         metric_columns_direction = { "distanceToHuman1" : "min",
                                      "distanceToStaticHumans" : "min",
                                      "pathCompletion": "min" }
 
-        thresholds = { "distanceToHuman1" : 4.0,
-                       "distanceToStaticHumans" : 2.5,
-                       "pathCompletion": 0.7 }
+        thresholds = { "distanceToHuman1" : 3.0,
+                       "distanceToStaticHumans" : 2.0,
+                       "pathCompletion": 0.6 }
 
-        target_metric_ids = metric_columns_direction.keys
+        target_metric_ids = metric_columns_direction.keys()
 
-        decision_node = FixedThresholdBasedDecisionNode(target_metric_ids, thresholds, False)
+        needed_operations = expt_config["needed_columns"]
+        base_files_dir = expt_config["data_dir_base"]
+        analyser = DecisionNodeAnalysis(base_files_dir, metrics_test_df, metric_columns_direction, needed_operations)
+        decision_node = FixedThresholdBased(target_metric_ids, 2, thresholds, False)
         decision_nodes = [decision_node]
-        evaluate_decision_nodes_front_quality(test_ids, metrics_test_df, metric_columns_direction, predictors_for_cols, decision_nodes)
+        decision_node_res = analyser.evaluate_decision_nodes_front_quality(predictors_for_cols, decision_nodes)
+        decision_nodes_info_for_splits[i] = decision_node_res
 
-def main():
-    test_evaluate_predictor_decisions_for_experiment(datasets.expt_config_eterry_human1_1100)
+    log.info(decision_nodes_info_for_splits)
+    for split_index, decision_nodes_info in decision_nodes_info_for_splits.items():
+        for decision_node, decision_node_res in decision_nodes_info.items():
+            res = decision_node_res
+            log.info(f"decision_node = {decision_node}, split_index = {split_index}")
+            log.info(f"tests_chosen_count = {res["tests_chosen_count"]}, front_all_tests_size = {res["front_all_tests_size"]},  front_from_decision_node_size = {res["front_from_decision_node_size"]}, quality_all_tests = {res["quality_indicators_all_tests"]}, quality_tests_chosen={res["quality_indicators_for_front"]}")
+    return decision_nodes_info_for_splits
+
+if __name__ == '__main__':
+    test_evaluate_predictor_decisions_for_experiment(datasets.expt_config_eterry_pathcompletion_1100)

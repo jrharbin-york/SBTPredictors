@@ -25,6 +25,7 @@ expt_config_mycobot_fourjoints_3000 = {
 data_dir_base_eterry_human1_1100 = "./input_csv_data/eterry-tenfiles-human1"
 data_dir_base_eterry_statichumans_1100 = "./input_csv_data/eterry-tenfiles-statichumans"
 data_dir_base_eterry_pathcompletion_1100 = "./input_csv_data/eterry-tenfiles-pathcompletion"
+data_dir_base_eterry_cutdown = "./input_csv_data/eterry-cutdown-predtest"
 
 eterry_ops = ["deletePointCloud", "delayPointCloud", "changeHumanXStep_zero", "humanPos2Offset", "humanPos3Offset"]
 
@@ -76,6 +77,23 @@ expt_config_eterry_pathcompletion_1100 = {
     "regression_graph_y": "Actual value of the path completion",
     "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
     "predictor_save_filename" : "eterry-pathcompletion.predictor",
+    "use_fixed_windows" : False
+}
+
+expt_config_eterry_cutdown = {
+    "dataset_name" : "ETERRY-StaticHumanDist",
+    "data_dir_base" : data_dir_base_eterry_cutdown,
+    "target_metric_name" : "distanceToStaticHumans",
+    "needed_columns" : eterry_ops,
+    "plot_x_lower" : 0.0,
+    "plot_x_upper" : 4.0,
+    "plot_y_lower" : 0.0,
+    "plot_y_upper" : 4.0,
+    "regression_graph_title" : "Predicted vs actual human-robot distance for static humans (human2+human3)",
+    "regression_graph_x": "Predicted value of the ETERRY-humans distance",
+    "regression_graph_y": "Actual value of the ETERRY-humans distance",
+    "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
+    "predictor_save_filename" : "eterry-statichumans-dist.predictor",
     "use_fixed_windows" : False
 }
 
