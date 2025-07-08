@@ -619,7 +619,7 @@ def test_regression(id_code, result_desc, alg_name, alg_func, fig_filename_func,
 #       pipeline, r2_score_from_reg, predicted_vs_actual = run_regression_or_classifier(True, alg_func_delayed, alg_name, params)
         pipeline, r2_score_from_reg, predicted_vs_actual = memory_tracker.with_tracking(lambda: run_regression_or_classifier(True, alg_func_delayed, alg_name, params))
 
-        predictor_save_filename = expt_config["predictor_save_filename"]
+        predictor_save_filename = expt_config["predictor_save_filename"] + "split-" + str(i) + str(alg_param1) + str(alg_param2) + ".predictor"
         data_loader.save_predictor_to_file(predictor_save_filename, pipeline)
 
         time_end = timer()

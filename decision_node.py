@@ -1,4 +1,5 @@
 from abc import ABCMeta, abstractmethod
+import random
 
 class MissingMetric(LookupError):
     """Raised when a metric is not present - because a predictor was not available for it"""
@@ -19,6 +20,15 @@ class DecisionNode(metaclass=ABCMeta):
 
     def register_front_all_tests(self, front_all_tests):
         self.front_all_tests = front_all_tests
+
+class RandomDecisionNode(DecisionNode):
+    def __init__(self, include_test_prob):
+        super().__init__()
+        self.include_test_prob = 0.5
+
+    def execute_or_not(self, test_id, predicted_metrics):
+        v = random.uniform(0.0,1.0)
+        return v < self.include_test_prob
 
 class NullDecisionNode(DecisionNode):
     """Null decision node just includes every test"""
@@ -65,13 +75,15 @@ class SimulatedAnnealingThreshold(DecisionNode):
 
 # Indicator-based decision node
 class IndicatorBasedDecisions(DecisionNode):
-    def __init__(self, target_indicator_object, decision_analysis):
+    def __init__(self, target_indicator_object, decision_analysis, all_tests_reference_front, improvement_relative_factor = 1.0):
         super().__init__()
         self.target_indicator_object = target_indicator_object
         self.current_best_front = None
+        self.all_tests_reference_front = all_tests_reference_front
         self.indicator_id = "HV"
         self.best_indicator_value = None
         self.decision_analysis = decision_analysis
+        self.improvement_relative_factor = improvement_relative_factor
 
     def execute_or_not(self, test_id, predicted_test_metrics):
         if self.best_indicator_value is None:
@@ -84,13 +96,13 @@ class IndicatorBasedDecisions(DecisionNode):
             hypothetical_front = self.decision_analysis.compute_front_from_tests(potential_front_plus_new_test)
             quality_indicators_with_new_test = self.decision_analysis.indicators_for_front(hypothetical_front, self.front_all_tests)
             quality_for_indicator = quality_indicators_with_new_test[self.indicator_id]
-            if quality_for_indicator > self.best_indicator_value:
-                # TODO: do we change current_best_front here or in accept_test?
+            # TODO: need a threshold here for this... if it improves the indicator value by X/%
+            include = (quality_for_indicator > self.best_indicator_value * self.improvement_relative_factor)
+            if include:
                 self.current_best_front = hypothetical_front
-                self.best_indicator_value = quality_for_indicator
-                return True
-            else:
-                return False
+            return include
 
     def accept_test(self, test_id, actual_test_metrics):
-        pass
+        potential_front_plus_new_test = self.current_best_front.append(actual_test_metrics)
+        self.current_best_front = self.decision_analysis.compute_front_from_tests(potential_front_plus_new_test)
+        self.best_indicator_value = self.decision_analysis.indicators_for_front(new_front, self.all_tests_reference_front)

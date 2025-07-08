@@ -112,6 +112,7 @@ class DecisionNodeAnalysis:
                 if should_execute:
                     # Log the decision to choose this test
                     tests_chosen_rows.append(test_metrics)
+                    decision_node.accept_test(test_id, test_metrics)
             tests_chosen = pd.DataFrame(tests_chosen_rows)
             return tests_chosen
         except MissingMetric as mmetric:
@@ -147,7 +148,7 @@ class DecisionNodeAnalysis:
         return decision_node_results
 
 def test_evaluate_predictor_decisions_for_experiment(expt_config):
-    # Load predictors from files - seperate predictor for all 3 metrics
+    # Load predictors from files - separate predictor for all 3 metrics
     human1_predfile = "./temp-saved-predictors/eterry-human1-dist.predictor"
     statichumans_predfile = "./temp-saved-predictors/eterry-statichumans-dist.predictor"
     path_predfile = "./temp-saved-predictors/eterry-pathcompletion.predictor"
@@ -178,8 +179,10 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
         needed_operations = expt_config["needed_columns"]
         base_files_dir = expt_config["data_dir_base"]
         analyser = DecisionNodeAnalysis(base_files_dir, metrics_test_df, metric_columns_direction, needed_operations)
+
         null_decision_node = NullDecisionNode()
         fixed_threshold_decision_node = FixedThresholdBased(target_metric_ids, 2, thresholds, False)
+
         decision_nodes = [null_decision_node, fixed_threshold_decision_node]
         decision_node_res = analyser.evaluate_decision_nodes_front_quality(predictors_for_cols, decision_nodes)
         decision_nodes_info_for_splits[i] = decision_node_res
