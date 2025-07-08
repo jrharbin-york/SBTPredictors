@@ -1,3 +1,4 @@
+import data_loader
 import predictor
 import settings
 from tabulate import tabulate
@@ -13,11 +14,11 @@ combined_results_all_tests = None
 data_samples_per_second = 10.0
 fixed_window_size = 30.0
 
-def run_tsfreshwin_gradboost_fixed_window_size(results_tag, expt_config):
+def run_tsfreshwin_gradboost_fixed_window_size(name_base, results_tag, expt_config):
     global combined_results_all_algs
     alg_name = "TSFreshWin_GradBoost"
     combined_name = results_tag + alg_name
-    combined_results_all_algs = predictor.run_test(expt_config,
+    combined_results_all_algs = predictor.run_test(name_base, expt_config,
                                                     combined_results_all_algs,
                                                     combined_name,
                                                     True,
@@ -29,11 +30,11 @@ def run_tsfreshwin_gradboost_fixed_window_size(results_tag, expt_config):
                                                     param2_name = "min_samples_split")
                                                     
 
-def run_tsfreshwin_ridge_fixed_window_size(results_tag, expt_config):
+def run_tsfreshwin_ridge_fixed_window_size(name_base, results_tag, expt_config):
     global combined_results_all_algs
     alg_name = "TSFreshWin_Ridge"
     combined_name = results_tag + "_" + alg_name
-    combined_results_all_algs = predictor.run_test(expt_config,
+    combined_results_all_algs = predictor.run_test(name_base, expt_config,
                                                     combined_results_all_algs,
                                                     combined_name,
                                                     True,
@@ -44,11 +45,11 @@ def run_tsfreshwin_ridge_fixed_window_size(results_tag, expt_config):
                                                     param1_name = "max_alpha",
                                                     param2_name = "alpha_step")
 
-def run_tsforest_fixed_window_size(results_tag, expt_config):
+def run_tsforest_fixed_window_size(name_base, results_tag, expt_config):
     global combined_results_all_algs
     alg_name = "TSForest"
     combined_name = results_tag + "_" + alg_name
-    combined_results_all_algs = predictor.run_test(expt_config,
+    combined_results_all_algs = predictor.run_test(name_base, expt_config,
                                                    combined_results_all_algs,
                                                    combined_name,
                                                    True,
@@ -64,11 +65,11 @@ def run_tsforest_fixed_window_size(results_tag, expt_config):
 # Variable window size variants
 ################################################################################
 
-def run_tsfreshwin_gradboost(results_tag, expt_config):
+def run_tsfreshwin_gradboost(name_base, results_tag, expt_config):
     global combined_results_all_algs
     alg_name = "TSFreshWin_GradBoost"
     combined_name = results_tag + alg_name
-    combined_results_all_algs = predictor.run_test(expt_config,
+    combined_results_all_algs = predictor.run_test(name_base, expt_config,
                                                     combined_results_all_algs,
                                                     combined_name,
                                                     True,
@@ -79,10 +80,10 @@ def run_tsfreshwin_gradboost(results_tag, expt_config):
                                                     param1_name = "n_estimators",
                                                     param2_name = "window_size")
 
-def run_tsfreshwin_gradboost_intervals(results_tag, expt_config):
+def run_tsfreshwin_gradboost_intervals(name_base, results_tag, expt_config):
     alg_name = "TSFreshWin_GradBoost"
     combined_name = results_tag + alg_name
-    combined_results_all_algs = predictor.run_test_intervals(expt_config,
+    combined_results_all_algs = predictor.run_test_intervals(name_base, expt_config,
                                                              combined_name,
                                                              True,
                                                              # alg_func_lower
@@ -104,10 +105,10 @@ def run_tsfreshwin_gradboost_intervals(results_tag, expt_config):
                                                              param2_name = "window_size")
                                                     
 
-def run_tsfreshwin_ngboost_intervals(results_tag, expt_config):
+def run_tsfreshwin_ngboost_intervals(name_base, results_tag, expt_config):
     alg_name = "TSFreshWin_NGBoost"
     combined_name = results_tag + alg_name
-    combined_results_all_algs = predictor.run_test_ngboost_intervals(expt_config,
+    combined_results_all_algs = predictor.run_test_ngboost_intervals(name_base, expt_config,
                                                              combined_name,
                                                              True,
                                                              # alg_func_lower
@@ -128,11 +129,11 @@ def run_tsfreshwin_ngboost_intervals(results_tag, expt_config):
                                                              param1_name = "n_estimators",
                                                              param2_name = "window_size")
     
-def run_tsfreshwin_ridge(results_tag, expt_config):
+def run_tsfreshwin_ridge(name_base, results_tag, expt_config):
     global combined_results_all_algs
     alg_name = "TSFreshWin_Ridge"
     combined_name = results_tag + "_" + alg_name
-    combined_results_all_algs = predictor.run_test(expt_config,
+    combined_results_all_algs = predictor.run_test(name_base, expt_config,
                                                     combined_results_all_algs,
                                                     combined_name,
                                                     True,
@@ -143,11 +144,11 @@ def run_tsfreshwin_ridge(results_tag, expt_config):
                                                     param1_name = "max_alpha",
                                                     param2_name = "window_size")
 
-def run_tsforest(results_tag, expt_config):
+def run_tsforest(name_base, results_tag, expt_config):
     global combined_results_all_algs
     alg_name = "TSForest"
     combined_name = results_tag + "_" + alg_name
-    combined_results_all_algs = predictor.run_test(expt_config,
+    combined_results_all_algs = predictor.run_test(name_base, expt_config,
                                                    combined_results_all_algs,
                                                    combined_name,
                                                    True,
@@ -161,11 +162,11 @@ def run_tsforest(results_tag, expt_config):
    
 ################################################################################
 
-def run_minirocket_ridge(results_tag, expt_config):
+def run_minirocket_ridge(name_base, results_tag, expt_config):
     global combined_results_all_algs
     alg_name = "MiniRocket_Ridge"
     combined_name = results_tag + "_" + alg_name
-    combined_results_all_algs = predictor.run_test(expt_config,
+    combined_results_all_algs = predictor.run_test(name_base, expt_config,
                                                    combined_results_all_algs,
                                                    combined_name,
                                                    True,
@@ -176,12 +177,12 @@ def run_minirocket_ridge(results_tag, expt_config):
                                                    param1_name = "num_kernels",
                                                    param2_name = "max_alpha")
 
-def run_inceptiontime(results_tag, expt_config):
+def run_inceptiontime(name_base, results_tag, expt_config):
     global combined_results_all_algs
     alg_name = "InceptionTime"
     combined_name = results_tag + "_" + alg_name
     default_n_epochs = 1500
-    combined_results_all_algs = predictor.run_test(expt_config,
+    combined_results_all_algs = predictor.run_test(name_base, expt_config,
                                                    combined_results_all_algs,
                                                    combined_name,
                                                    True,
@@ -192,11 +193,11 @@ def run_inceptiontime(results_tag, expt_config):
                                                    param1_name = "n_epochs",
                                                    param2_name = "kernel_size")
 
-def run_minirocket_gradboost(results_tag, expt_config):
+def run_minirocket_gradboost(name_base, results_tag, expt_config):
     global combined_results_all_algs
     alg_name = "MiniRocket_GradBoost"
     combined_name = results_tag + "_" + alg_name
-    combined_results_all_algs = predictor.run_test(expt_config,
+    combined_results_all_algs = predictor.run_test(name_base, expt_config,
                                                     combined_results_all_algs,
                                                     combined_name,
                                                     True,
@@ -207,34 +208,33 @@ def run_minirocket_gradboost(results_tag, expt_config):
                                                     param1_name = "num_kernels",
                                                     param2_name = "n_estimators")
 
-def run_tsfreshwin_ngboost_intervals(results_tag, expt_config):
-    print("TSFreshWin NGBoost...")
-    global combined_results_all_algs
-    alg_name = "TSFreshWin_NGBoost_Intervals"
-    combined_name = results_tag + "_" + alg_name
-    combined_results_all_algs = predictor.run_test_ngboost_intervals(alg_name, expt_config)
+#def run_tsfreshwin_ngboost_intervals(name_base, results_tag, expt_config):
+#    print("TSFreshWin NGBoost...")
+#    global combined_results_all_algs
+#    alg_name = "TSFreshWin_NGBoost_Intervals"
+#    combined_name = results_tag + "_" + alg_name
+#    combined_results_all_algs = predictor.run_test_ngboost_intervals(alg_name, expt_config)
     
 def run_all_algs_on_dataset(expt_config, using_inceptiontime = True):
     global combined_results_all_algs
     combined_results_all_algs = None
     dataset_name = expt_config["dataset_name"]
 
+    name_base = data_loader.create_directory_for_results(expt_config["dataset_name"]) + "/"
+
     run_intervals = True
 
     if expt_config["use_fixed_windows"]:
-        run_tsfreshwin_gradboost_fixed_window_size(dataset_name, expt_config)
-        run_tsfreshwin_ridge_fixed_window_size(dataset_name, expt_config)
-        run_tsforest_fixed_window_size(dataset_name, expt_config)
+        run_tsfreshwin_gradboost_fixed_window_size(name_base, dataset_name, expt_config)
+        run_tsfreshwin_ridge_fixed_window_size(name_base, dataset_name, expt_config)
+        run_tsforest_fixed_window_size(name_base, dataset_name, expt_config)
     else:
-#        if run_intervals:
-#           run_tsfreshwin_gradboost_intervals(dataset_name, expt_config)
-#            run_tsfreshwin_ngboost_intervals(dataset_name, expt_config)
-        run_tsfreshwin_gradboost(dataset_name, expt_config)
-#        run_tsfreshwin_ridge(dataset_name, expt_config)
+        run_tsfreshwin_gradboost(name_base, dataset_name, expt_config)
+        run_tsfreshwin_ridge(name_base, dataset_name, expt_config)
         
-#    run_minirocket_gradboost(dataset_name, expt_config)
-#    run_minirocket_ridge(dataset_name, expt_config)
-#    run_tsforest(dataset_name, expt_config)
+    run_minirocket_gradboost(name_base, dataset_name, expt_config)
+    run_minirocket_ridge(name_base, dataset_name, expt_config)
+    run_tsforest(name_base, dataset_name, expt_config)
 
     # save results before running inceptiontime
     print("Combined results sorted by r2_score...\n")

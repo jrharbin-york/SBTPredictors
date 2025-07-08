@@ -1,4 +1,5 @@
 from ngboost.scores import CRPScore
+from sklearn.multioutput import RegressorChain
 from sktime.datatypes import check_raise, convert_to
 from sktime.transformations.panel.rocket import Rocket, MiniRocket, MiniRocketMultivariate, MultiRocketMultivariate
 from sktime.transformations.panel.summarize import RandomIntervalFeatureExtractor
@@ -478,7 +479,6 @@ def create_inceptiontime(n_epochs=30, batch_size=64, kernel_size=40):
 
 def plot_regression(regression_graph_title, predicted_vs_actual, expt_config, filename="regression.pdf"):
     print("length of dataframe:" + str(len(predicted_vs_actual)))
-#   print(predicted_vs_actual.to_markdown())
     plt.clf()
     plt.scatter(predicted_vs_actual["predicted_val"], predicted_vs_actual["actual_val"],marker='x')
     plt.axline((1,1),(2,2), marker="None", linestyle="dotted", color="Black")
@@ -494,7 +494,6 @@ def plot_regression(regression_graph_title, predicted_vs_actual, expt_config, fi
     plt.ylim([plot_y_lower, plot_y_upper])
     plt.title(regression_graph_title)
 
-    # TODO: Save predicted/actual to a raw log file
     headers = ["predicted_val", "actual_val"]
     csv_filename = filename + "_rawdata.csv"
     predicted_vs_actual.to_csv(csv_filename, columns = headers)
@@ -545,8 +544,7 @@ def plot_regression_intervals_original(regression_graph_title, predicted_vs_actu
     plt.xlim([plot_x_lower, plot_x_upper])
     plt.ylim([plot_y_lower, plot_y_upper])
     plt.title(regression_graph_title)
-    plt.savefig(filename)   
-    
+    plt.savefig(filename)
 
 def plot_confusion_matrix(predicted_vs_actual, filename="confusion.pdf", normalize=None):
     cm = confusion_matrix(predicted_vs_actual["actual_class"], predicted_vs_actual["predicted_class"], normalize=normalize)
@@ -580,7 +578,7 @@ def plot_confusion_matrix(predicted_vs_actual, filename="confusion.pdf", normali
     plt.savefig(filename)
     return None
 
-def test_regression(id_code, result_desc, alg_name, alg_func, fig_filename_func, pd_res, expt_config, summary_res, alg_param1, alg_param2, k=5):
+def test_regression(name_base, id_code, result_desc, alg_name, alg_func, fig_filename_func, pd_res, expt_config, summary_res, alg_param1, alg_param2, k=5):
     params = {}
 
     params["base_dir"] = expt_config["data_dir_base"]
@@ -588,9 +586,23 @@ def test_regression(id_code, result_desc, alg_name, alg_func, fig_filename_func,
     params["needed_columns"] = expt_config["needed_columns"]
 
     mfile = expt_config["data_dir_base"] + "/metrics.csv"
-    data_files, metrics = data_loader.read_data(expt_config["data_dir_base"], mfile)
+    data_files_plus_decision_set, metrics_plus_decision_set = data_loader.read_data(expt_config["data_dir_base"], mfile)
     alg_func_delayed = lambda params: alg_func(alg_param1, alg_param2, params)
- 
+
+    decision_test_size = 0.2
+    random_state = 23
+    data_files, decision_test_files, metrics, decision_test_metrics = train_test_split(data_files_plus_decision_set, metrics_plus_decision_set, test_size = decision_test_size, random_state=random_state, shuffle=True)
+
+    log.debug(f"data_files_plus_decision_set={len(data_files_plus_decision_set)}")
+    log.debug(f"metrics_plus_decision_set={len(metrics_plus_decision_set)}")
+    log.debug(f"data_files={len(data_files)}")
+    log.debug(f"metrics={len(metrics)}")
+    log.debug(f"decision_test_files={len(decision_test_files)}")
+    log.debug(f"decision_test_metrics={len(decision_test_metrics)}")
+
+    decision_test_metrics_filename = name_base + "-decisionTestMetrics-" + str(alg_param1) + "-" + str(alg_param2) + ".csv"
+    decision_test_metrics.to_csv(decision_test_metrics_filename)
+
     k=5
     kf = KFold(n_splits=k, shuffle=k_fold_shuffle)
 
@@ -601,6 +613,7 @@ def test_regression(id_code, result_desc, alg_name, alg_func, fig_filename_func,
 
     timediff_all_splits = []
     memoryused_all_splits = []
+
     
     for i, (train_index, test_index) in enumerate(kf.split(data_files)):
         # Split the data for k_fold validation
@@ -619,7 +632,7 @@ def test_regression(id_code, result_desc, alg_name, alg_func, fig_filename_func,
 #       pipeline, r2_score_from_reg, predicted_vs_actual = run_regression_or_classifier(True, alg_func_delayed, alg_name, params)
         pipeline, r2_score_from_reg, predicted_vs_actual = memory_tracker.with_tracking(lambda: run_regression_or_classifier(True, alg_func_delayed, alg_name, params))
 
-        predictor_save_filename = expt_config["predictor_save_filename"] + "split-" + str(i) + str(alg_param1) + str(alg_param2) + ".predictor"
+        predictor_save_filename = name_base + expt_config["predictor_save_filename"] + "-split" + str(i) + "-" + str(alg_param1) + "-" + str(alg_param2) + ".predictor"
         data_loader.save_predictor_to_file(predictor_save_filename, pipeline)
 
         time_end = timer()
@@ -856,15 +869,33 @@ def test_classification(id_code, alg_name, alg_func, fig_filename_func, pd_res, 
     summary_res.loc[len(summary_res)] = summary_this_test
     return pd_res, summary_res
 
-def run_test(expt_config, combined_results_all_tests, alg_name, regression, alg_func, alg_params1, alg_params2, param1_name, param2_name):
+
+def log_latex_summary_results(stats_results, filename="summary-res.tex", sorted_by_col="r2_score_mean", limit=10):
+    if sorted_by_col is None:
+        sorted_results = stats_results
+    else:
+        sorted_results = stats_results.sort_values(by=sorted_by_col, ascending=False)
+
+    if limit is None:
+        selected_results = sorted_results
+    else:
+        selected_results = sorted_results.head(limit)
+    latex_table = sorted_results.to_latex(index=False)  # index=False removes row indices
+    with open(filename, 'w') as f:
+        f.write(latex_table)
+    log.info(f"LaTeX summary results saved to {filename}")
+
+def run_test(name_base, expt_config, combined_results_all_tests, alg_name, regression, alg_func, alg_params1, alg_params2, param1_name, param2_name):
+    # Put the directory here
+
     if regression:
         individual_results = pd.DataFrame(columns=["id", "param1", "param2", "k_split", "r2_score", "mse", "rmse", "filename_graph", "time_diff", "memory_used"])
         stats_results = pd.DataFrame(columns=["id", "result_desc", "param1", "param2", "r2_score_mean", "mse_mean", "rmse_mean", "r2_score_stddev", "mse_score_stddev", "rmse_score_stddev", "memory_used_mean", "time_mean", "memory_used_stddev", "time_stddev"])
-        name_base = "regression"
+        name_base = name_base + "regression"
     else:
         individual_results = pd.DataFrame(columns=["id", "param1", "param2", "k_split", "accuracy_score", "top_k_accuracy_score", "filename_graph", "time_diff"])
         stats_results = pd.DataFrame(columns=["param1", "param2", "mean_accuracy", "min_accuracy", "max_accuracy", "mean_top_k_accuracy", "stddev_accuracy", "stddev_top_k_accuracy"])
-        name_base = "classification"
+        name_base = name_base + "classification"
         
     results_file = name_base + "-" + alg_name + "-res.csv"
     summary_file = name_base + "-" + alg_name + "-summary-stats.csv"
@@ -880,7 +911,7 @@ def run_test(expt_config, combined_results_all_tests, alg_name, regression, alg_
             id_code = "ID" + str(id_num) + param1_name + str(param1) + "_" + param2_name + str(param2)
             result_desc = alg_name + "_" + param1_name + "=" + str(param1) + "_" + param2_name + "_" + str(param2)
             if regression:
-                individual_results, stats_results = test_regression(id_code, result_desc, alg_name, alg_func, fig_filename_func, individual_results, expt_config, stats_results, alg_param1=param1, alg_param2=param2)
+                individual_results, stats_results = test_regression(name_base, id_code, result_desc, alg_name, alg_func, fig_filename_func, individual_results, expt_config, stats_results, alg_param1=param1, alg_param2=param2)
             else:
                 individual_results, stats_results = test_classification(id_code, result_desc, alg_name, alg_func, fig_filename_func, individual_results, expt_config, stats_results, alg_param1=param1, alg_param2=param2)
             print(tabulate(stats_results, headers="keys"))
@@ -894,6 +925,10 @@ def run_test(expt_config, combined_results_all_tests, alg_name, regression, alg_
     individual_results.to_csv(results_file, sep=",")
     print(tabulate(individual_results, headers="keys")) 
     stats_results.to_csv(summary_file, sep=",")
+
+    summary_file_latex = summary_file + ".tex"
+    log_latex_summary_results(stats_results, sorted_by_col="r2_score_mean", limit=20, filename=summary_file_latex)
+
     plot_param_variations_r2_score(stats_results, param1_name, param2_name, range_graph_title, filename=range_graph_file)
     plot_param_variations_r2_score(stats_results, param1_name, param2_name, range_graph_title, filename=range_graph_file_png)
 

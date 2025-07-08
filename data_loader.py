@@ -2,6 +2,8 @@ from sktime.datatypes import check_raise, convert_to
 import pandas as pd
 import pickle, os, glob
 import structlog
+import os
+from datetime import datetime
 
 log = structlog.get_logger()
 
@@ -40,3 +42,26 @@ def save_predictor_to_file(trained_predictor_filename, predictor):
     pickle.dump(predictor, file)
     file.close()
     log.debug(f"Saved the predictor to " + str(trained_predictor_filename))
+
+def create_directory_for_results(directory_name, append_date=True, base_directory="results"):
+    # Get current date and time
+    current_time = datetime.now()
+
+    # Format directory_name with YYYYMMDD_HHMMSS string appended
+    if append_date:
+        target_directory_name = directory_name + "_" + current_time.strftime("%Y_%m_%d_%H_%M_%S")
+    else:
+        target_directory_name = directory_name
+
+    # Define the path for the new directory (e.g., in 'logs' folder)
+    base_path = os.path.join(os.getcwd(), base_directory)
+    new_directory = os.path.join(base_path, target_directory_name)
+
+    try:
+        # Create the directory with parents if needed
+        os.makedirs(new_directory, exist_ok=True)
+        log.info(f"Directory created successfully: {new_directory}")
+        return new_directory
+    except OSError as e:
+        log.info(f"Error creating directory: {e}")
+        raise e
