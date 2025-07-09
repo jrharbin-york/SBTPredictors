@@ -1,3 +1,4 @@
+import math
 from abc import ABCMeta, abstractmethod
 import random
 
@@ -66,12 +67,49 @@ class FixedThresholdBased(DecisionNode):
                     found_count += 1
         return found_count >= self.metrics_needed
 
-# TODO: can we split these up into multiple and a decision voting?
-
 # TODO: simulated annealing decision node
+# Acceptance probability of accepting a worse solution than the current best - decays over
+# time exponentially
+# example here: https://machinelearningmastery.com/simulated-annealing-from-scratch-in-python/
+
 class SimulatedAnnealingThreshold(DecisionNode):
+    """Simulated annealing has a probability of accepting a worst solution than the current best -
+    computes the distances between predicted and best actual and uses the diagonal distance to calibrate
+    the probability based upon temperature"""
+    def __init__(self, target_metrics_ids):
+        super().__init__()
+        self.target_metric_ids = target_metrics_ids
+        self.initial_temperature = 0
+        self.current_best_predictions = {}
+        # TODO: increment epoch once per prediction count
+        self.epoch = 0
+
     def execute_or_not(self, test_id, predicted_metrics):
-        pass
+        execute = False
+        diff_m_squared = 0.0
+        for m in self.target_metric_ids:
+            prediction_for_m =  predicted_metrics[m]
+            # TODO: currently assumes minimisation only
+            if self.current_best_predictions[m] is None:
+                execute = True
+            else:
+                diff_m = prediction_for_m - self.current_best_predictions
+                diff_m_squared += diff_m ** 2.0
+
+            diff_all_metrics = math.sqrt(diff_m_squared)
+            t_now = self.initial_temperature / float(self.epoch + 1)
+            metropolis = math.exp(-diff_all_metrics / t_now)
+            if diff_all_metrics < 0 or random.uniform(0.0, 1.0) < metropolis:
+                execute = True
+
+        return execute
+
+    def accept_test(self, test_id, actual_test_metrics):
+        potential_front_plus_new_test = self.current_best_front.append(actual_test_metrics)
+        self.current_best_front = self.decision_analysis.compute_front_from_tests(potential_front_plus_new_test)
+        self.best_indicator_value = self.decision_analysis.indicators_for_front(self.current_best_front, self.all_tests_reference_front)
+
+
 
 # Indicator-based decision node
 class IndicatorBasedDecisions(DecisionNode):
@@ -105,4 +143,4 @@ class IndicatorBasedDecisions(DecisionNode):
     def accept_test(self, test_id, actual_test_metrics):
         potential_front_plus_new_test = self.current_best_front.append(actual_test_metrics)
         self.current_best_front = self.decision_analysis.compute_front_from_tests(potential_front_plus_new_test)
-        self.best_indicator_value = self.decision_analysis.indicators_for_front(new_front, self.all_tests_reference_front)
+        self.best_indicator_value = self.decision_analysis.indicators_for_front(self.current_best_front, self.all_tests_reference_front)

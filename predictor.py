@@ -589,7 +589,7 @@ def test_regression(name_base, id_code, result_desc, alg_name, alg_func, fig_fil
     data_files_plus_decision_set, metrics_plus_decision_set = data_loader.read_data(expt_config["data_dir_base"], mfile)
     alg_func_delayed = lambda params: alg_func(alg_param1, alg_param2, params)
 
-    decision_test_size = 0.2
+    decision_test_size = 0.15
     random_state = 23
     data_files, decision_test_files, metrics, decision_test_metrics = train_test_split(data_files_plus_decision_set, metrics_plus_decision_set, test_size = decision_test_size, random_state=random_state, shuffle=True)
 

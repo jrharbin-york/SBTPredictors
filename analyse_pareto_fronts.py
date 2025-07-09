@@ -73,19 +73,6 @@ class DecisionNodeAnalysis:
         front_info = {"hypervolume": hv_val, "igd": igd_val}
         return front_info
 
-#   def indicators_for_multiple_fronts(self, fronts, selected_cols):
-#       """Compute the IGD and reference front"""
-#       #Reference point is obtained as the max point from all fronts
-#       # compute the reference point and reference front from all the front contents?
-#       ref_point = self.max_point_from_all_fronts(fronts)
-#       # Assumes the reference front is the first
-#       ref_front = fronts[0]
-#       all_fronts_indicators = {}
-#
-#       for front_pandas in fronts:
-#          all_fronts_indicators[front_pandas] = self.indicators_for_front(front_pandas, ref_front)
-#       return all_fronts_indicators
-
     def load_test_definition(self, test_id):
         filepath = self.base_files_dir + "/" + test_id
         return data_loader.load_individual_instance(filepath, self.needed_operations)
@@ -161,38 +148,29 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
                                  "distanceToStaticHumans" : "min",
                                  "pathCompletion": "min" }
 
-    all_metrics_file = expt_config["data_dir_base"] + "/allMetrics.csv"
-    data_files, all_metrics = data_loader.read_data(expt_config["data_dir_base"], all_metrics_file)
+    decision_metrics_file = expt_config["data_dir_base"] + "/decisionMetrics.csv"
+    decision_data_files, decision_metrics = data_loader.read_data(expt_config["data_dir_base"], decision_metrics_file)
     decision_nodes_info_for_splits = {}
 
-    k = 5
-    kf = KFold(n_splits=k, shuffle=True)
-    for i, (train_index, test_index) in enumerate(kf.split(data_files)):
-        metrics_test_df = all_metrics.iloc[test_index]
+    thresholds = { "distanceToHuman1" : 3.0,
+                   "distanceToStaticHumans" : 2.0,
+                   "pathCompletion": 0.6 }
 
-        thresholds = { "distanceToHuman1" : 3.0,
-                       "distanceToStaticHumans" : 2.0,
-                       "pathCompletion": 0.6 }
+    target_metric_ids = metric_columns_direction.keys()
 
-        target_metric_ids = metric_columns_direction.keys()
+    needed_operations = expt_config["needed_columns"]
+    base_files_dir = expt_config["data_dir_base"]
+    analyser = DecisionNodeAnalysis(base_files_dir, decision_metrics, metric_columns_direction, needed_operations)
 
-        needed_operations = expt_config["needed_columns"]
-        base_files_dir = expt_config["data_dir_base"]
-        analyser = DecisionNodeAnalysis(base_files_dir, metrics_test_df, metric_columns_direction, needed_operations)
+    null_decision_node = NullDecisionNode()
+    fixed_threshold_decision_node = FixedThresholdBased(target_metric_ids, 2, thresholds, False)
 
-        null_decision_node = NullDecisionNode()
-        fixed_threshold_decision_node = FixedThresholdBased(target_metric_ids, 2, thresholds, False)
+    decision_nodes = [null_decision_node, fixed_threshold_decision_node]
+    decision_nodes_info = analyser.evaluate_decision_nodes_front_quality(predictors_for_cols, decision_nodes)
 
-        decision_nodes = [null_decision_node, fixed_threshold_decision_node]
-        decision_node_res = analyser.evaluate_decision_nodes_front_quality(predictors_for_cols, decision_nodes)
-        decision_nodes_info_for_splits[i] = decision_node_res
-
-    log.info(decision_nodes_info_for_splits)
-    for split_index, decision_nodes_info in decision_nodes_info_for_splits.items():
-        for decision_node, decision_node_res in decision_nodes_info.items():
-            res = decision_node_res
-            log.info(f"decision_node = {decision_node}, split_index = {split_index}")
-            log.info(f"all_tests_count = {res["all_tests_count"]}, front_all_tests_size = {res["front_all_tests_size"]}, quality_all_tests = {res["quality_indicators_all_tests"]}, tests_chosen_count = {res["tests_chosen_count"]}, front_from_decision_node_size = {res["front_from_decision_node_size"]}, , quality_tests_chosen={res["quality_indicators_for_front"]}")
+    for decision_node, decision_node_res in decision_nodes_info.items():
+        res = decision_node_res
+        log.info(f"all_tests_count = {res["all_tests_count"]}, front_all_tests_size = {res["front_all_tests_size"]}, quality_all_tests = {res["quality_indicators_all_tests"]}, tests_chosen_count = {res["tests_chosen_count"]}, front_from_decision_node_size = {res["front_from_decision_node_size"]}, , quality_tests_chosen={res["quality_indicators_for_front"]}")
     return decision_nodes_info_for_splits
 
 if __name__ == '__main__':
