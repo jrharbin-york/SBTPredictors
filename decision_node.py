@@ -134,26 +134,30 @@ class IndicatorBasedDecisions(DecisionNode):
         self.best_indicator_value = None
         self.decision_analysis = decision_analysis
         self.improvement_relative_factor = improvement_relative_factor
+        self.accepted_tests = []
 
     def execute_or_not(self, test_id, predicted_test_metrics):
-        if self.best_indicator_value is None:
+        MIN_TESTS = 0
+
+        if (self.best_indicator_value is None) or (len(self.accepted_tests) < MIN_TESTS):
+            # Always accept the first test
             return True
         else:
-            # Create front including the new test's predicted values
-            # Compute the indicator speculative value - is it better?
-            # If so, accept it
-            potential_front_plus_new_test = self.current_best_front.append(predicted_test_metrics)
-            hypothetical_front = self.decision_analysis.compute_front_from_tests(potential_front_plus_new_test)
-            quality_indicators_with_new_test = self.decision_analysis.indicators_for_front(hypothetical_front, self.front_all_tests)
-            quality_for_indicator = quality_indicators_with_new_test[self.indicator_id]
-            # TODO: need a threshold here for this... if it improves the indicator value by X/%
-            include = (quality_for_indicator > self.best_indicator_value * self.improvement_relative_factor)
+            current_accepted_tests_plus_prediction = self.accepted_tests
+            current_accepted_tests_plus_prediction.append(predicted_test_metrics)
+            accepted_tests_plus_current_df = pd.DataFrame(current_accepted_tests_plus_prediction)
+            hypothetical_front = self.decision_analysis.compute_front_from_tests(accepted_tests_plus_current_df)
+
+            predicted_quality_indicators_with_new_test = self.decision_analysis.indicators_for_front(hypothetical_front, self.front_all_tests)
+            predicted_quality_for_indicator = predicted_quality_indicators_with_new_test[self.indicator_id]
+            log.debug(f"point on hypothetical front={len(hypothetical_front)},predicted_quality_for_indicator={predicted_quality_for_indicator}")
+            # improvement_relative_factor of 1.0 will accept any increase
+            include = (predicted_quality_for_indicator > (self.best_indicator_value * self.improvement_relative_factor))
             return include
 
     def accept_test(self, test_id, actual_test_metrics):
-        if self.current_best_front is None:
-            self.current_best_front = pd.DataFrame([])
-
-        potential_front_plus_new_test = pd.concat([self.current_best_front, actual_test_metrics])
-        self.current_best_front = self.decision_analysis.compute_front_from_tests(potential_front_plus_new_test)
-        self.best_indicator_value = self.decision_analysis.indicators_for_front(self.current_best_front, self.front_all_tests)
+        self.accepted_tests.append(actual_test_metrics)
+        accepted_tests_df = pd.DataFrame(self.accepted_tests)
+        self.current_best_front = self.decision_analysis.compute_front_from_tests(accepted_tests_df)
+        new_indicators = self.decision_analysis.indicators_for_front(self.current_best_front, self.front_all_tests)
+        self.best_indicator_value = new_indicators[self.indicator_id]

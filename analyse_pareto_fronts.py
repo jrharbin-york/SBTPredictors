@@ -30,8 +30,9 @@ class DecisionNodeAnalysis:
         # columns_direction is a hashtable of column name to either 'max' or 'min'
         print(self.metric_columns_direction)
         directions = [self.metric_columns_direction[k] for k in self.metric_cols_chosen]
-        print(metric_tests)
+
         if len(metric_tests) > 0:
+            print(metric_tests)
             metric_tests_metricsonly = metric_tests[self.metric_cols_chosen]
             # Computes the front from the given metric_test, inverting if the columns chosen are flipped
             mask = paretoset.paretoset(metric_tests_metricsonly, sense=directions)
@@ -65,7 +66,11 @@ class DecisionNodeAnalysis:
         # Get front as numpy array
         front = self.front_to_numpy_array(front_df)
         ref_front = self.front_to_numpy_array(ref_front_df)
-        ref_point = self.max_point_from_all_fronts([front, ref_front])
+
+        if len(front > 0):
+            ref_point = self.max_point_from_all_fronts([front, ref_front])
+        else:
+            ref_point = self.max_point_from_all_fronts([ref_front])
 
         hv_ind = HV(ref_point=ref_point)
         igd_ind = IGD(ref_front)
@@ -190,7 +195,7 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
                       sim_annealing_node,
                       hypervolume_based]
 
-    decision_nodes = [hypervolume_based, sim_annealing_node]
+    decision_nodes = [hypervolume_based]
 
     all_decision_node_results = {}
 
