@@ -1,14 +1,16 @@
 from sklearn.model_selection import KFold
-
 import structlog
 import pandas as pd
 import numpy as np
 from pymoo.indicators.igd import IGD
 from pymoo.indicators.hv import HV
 import paretoset
+from tabulate import tabulate
+
 import data_loader
 import datasets
-from decision_node import FixedThresholdBased, MissingMetric, NullDecisionNode
+from decision_node import FixedThresholdBased, MissingMetric, NullDecisionNode, RandomDecisionNode, \
+    SimulatedAnnealingThreshold, IndicatorBasedDecisions
 
 log = structlog.get_logger()
 
@@ -106,7 +108,7 @@ class DecisionNodeAnalysis:
             log.info("Metric", mmetric, " is missing")
             raise FrontCalculationFailed(mmetric)
 
-    def evaluate_decision_nodes_front_quality(self, predictors, decision_nodes):
+    def evaluate_decision_nodes_front_quality(self, predictors, decision_node):
         # Assess the front from all tests
         front_all_tests = self.compute_front_from_tests(self.metrics_test_df)
         log.debug(f"Front from all tests:\n {front_all_tests}")
@@ -116,22 +118,21 @@ class DecisionNodeAnalysis:
         # Then test the possible decision nodes
         decision_node_results = {}
 
-        for decision_node in decision_nodes:
-            decision_node.register_front_all_tests(front_all_tests)
-            chosen_by_decision_node = self.choose_tests_from_decision_node(self.metrics_test_df, predictors, decision_node)
-            tests_chosen_count = len(chosen_by_decision_node)
-            front_with_decisions = self.compute_front_from_tests(chosen_by_decision_node)
-            quality_indicators_for_front = self.indicators_for_front(front_with_decisions, front_all_tests)
-            log.info(f"Front generate with the decision node {decision_node}:\n {front_with_decisions}")
-            decision_node_results[decision_node] = {"decision_node" : decision_node,
-                                                    "front_all_tests" : front_all_tests,
-                                                    "front_all_tests_size" : len(front_all_tests),
-                                                    "tests_chosen_count" : tests_chosen_count,
-                                                    "all_tests_count" : len(self.metrics_test_df),
-                                                    "quality_indicators_all_tests" : quality_indicators_all_tests,
-                                                    "front_from_decision_node" : front_with_decisions,
-                                                    "front_from_decision_node_size": len(front_with_decisions),
-                                                    "quality_indicators_for_front" : quality_indicators_for_front }
+        decision_node.register_front_all_tests(front_all_tests)
+        chosen_by_decision_node = self.choose_tests_from_decision_node(self.metrics_test_df, predictors, decision_node)
+        tests_chosen_count = len(chosen_by_decision_node)
+        front_with_decisions = self.compute_front_from_tests(chosen_by_decision_node)
+        quality_indicators_for_front = self.indicators_for_front(front_with_decisions, front_all_tests)
+        log.info(f"Front generate with the decision node {decision_node}:\n {front_with_decisions}")
+        # TODO: log front_all_tests and front_with_decision_nodes
+        decision_node_results = {"decision_node" : decision_node,
+                                 "front_all_tests_size" : len(front_all_tests),
+                                 "tests_chosen_count" : tests_chosen_count,
+                                 "all_tests_count" : len(self.metrics_test_df),
+                                 "quality_indicators_all_tests" : str(quality_indicators_all_tests),
+                                 "front_from_decision_node_size": len(front_with_decisions),
+                                 "quality_indicators_for_front" : str(quality_indicators_for_front) }
+
         return decision_node_results
 
 def test_evaluate_predictor_decisions_for_experiment(expt_config):
@@ -163,15 +164,45 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
     analyser = DecisionNodeAnalysis(base_files_dir, decision_metrics, metric_columns_direction, needed_operations)
 
     null_decision_node = NullDecisionNode()
-    fixed_threshold_decision_node = FixedThresholdBased(target_metric_ids, 2, thresholds, False)
 
-    decision_nodes = [null_decision_node, fixed_threshold_decision_node]
-    decision_nodes_info = analyser.evaluate_decision_nodes_front_quality(predictors_for_cols, decision_nodes)
+    random_decision_node_prob = 0.1
+    random_decision_node = RandomDecisionNode(random_decision_node_prob)
 
-    for decision_node, decision_node_res in decision_nodes_info.items():
-        res = decision_node_res
-        log.info(f"all_tests_count = {res["all_tests_count"]}, front_all_tests_size = {res["front_all_tests_size"]}, quality_all_tests = {res["quality_indicators_all_tests"]}, tests_chosen_count = {res["tests_chosen_count"]}, front_from_decision_node_size = {res["front_from_decision_node_size"]}, , quality_tests_chosen={res["quality_indicators_for_front"]}")
-    return decision_nodes_info_for_splits
+    distance_divisor_per_metric = {
+        "distanceToHuman1": 10,
+        "distanceToStaticHumans": 4,
+        "pathCompletion": 1
+    }
+
+    sim_annealing_node = SimulatedAnnealingThreshold(target_metric_ids, distance_divisor_per_metric, initial_temperature=10.0)
+
+    fixed_threshold_decision_node_1 = FixedThresholdBased(target_metric_ids, 1, thresholds, False)
+    fixed_threshold_decision_node_2 = FixedThresholdBased(target_metric_ids, 2, thresholds, False)
+    fixed_threshold_decision_node_3 = FixedThresholdBased(target_metric_ids, 3, thresholds, False)
+
+    hypervolume_based = IndicatorBasedDecisions("hypervolume", analyser, 1.0)
+
+    decision_nodes = [null_decision_node,
+                      random_decision_node,
+                      fixed_threshold_decision_node_1,
+                      fixed_threshold_decision_node_2,
+                      fixed_threshold_decision_node_3,
+                      sim_annealing_node,
+                      hypervolume_based]
+
+    decision_nodes = [hypervolume_based, sim_annealing_node]
+
+    all_decision_node_results = {}
+
+    for decision_node in decision_nodes:
+        decision_node_name = decision_node.__class__.__name__
+        decision_node_info = analyser.evaluate_decision_nodes_front_quality(predictors_for_cols, decision_node)
+        all_decision_node_results[decision_node_name] = decision_node_info
+
+    results_df = pd.DataFrame.from_dict(all_decision_node_results, orient="columns")
+    res_filename = "all_decision_node_results.csv"
+    results_df.to_csv(res_filename)
+    print(tabulate(results_df, headers="keys"))
 
 if __name__ == '__main__':
-    test_evaluate_predictor_decisions_for_experiment(datasets.expt_config_eterry_pathcompletion_1100)
+    test_evaluate_predictor_decisions_for_experiment(datasets.expt_config_eterry_human1_15files)
