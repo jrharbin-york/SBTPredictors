@@ -238,9 +238,13 @@ def run_all_algs_on_dataset(expt_config, using_inceptiontime = True):
 
     # save results before running inceptiontime
     print("Combined results sorted by r2_score...\n")
-    combined_result_file = dataset_name + "_sorted_summary_results.csv"
+    combined_result_file = name_base + dataset_name + "_sorted_summary_results.csv"
     combined_results_all_algs.to_csv(combined_result_file, sep=",")
     print(tabulate(combined_results_all_algs, headers="keys"))
+    # Log LaTeX results
+    summary_file = name_base + dataset_name + "_sorted_summary_results.tex"
+    summary_file_latex = name_base + summary_file + ".tex"
+    predictor.log_latex_summary_results(combined_results_all_algs, sorted_by_col="r2_score_mean", limit=20, filename=summary_file_latex)
 
     # inceptiontime is very long running
     if using_inceptiontime:

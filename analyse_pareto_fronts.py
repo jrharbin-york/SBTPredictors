@@ -179,35 +179,43 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
         "pathCompletion": 1
     }
 
-    sim_annealing_node = SimulatedAnnealingThreshold(target_metric_ids, distance_divisor_per_metric, initial_temperature=10.0)
-
     fixed_threshold_decision_node_1 = FixedThresholdBased(target_metric_ids, 1, thresholds, False)
     fixed_threshold_decision_node_2 = FixedThresholdBased(target_metric_ids, 2, thresholds, False)
     fixed_threshold_decision_node_3 = FixedThresholdBased(target_metric_ids, 3, thresholds, False)
 
+    sim_annealing_node_1 = SimulatedAnnealingThreshold(target_metric_ids, distance_divisor_per_metric, initial_temperature=10.0)
+    sim_annealing_node_2 = SimulatedAnnealingThreshold(target_metric_ids, distance_divisor_per_metric, initial_temperature=100.0)
+    sim_annealing_node_3 = SimulatedAnnealingThreshold(target_metric_ids, distance_divisor_per_metric, initial_temperature=1000.0)
+
     hypervolume_based = IndicatorBasedDecisions("hypervolume", analyser, 1.0)
 
     decision_nodes = [null_decision_node,
-                      random_decision_node,
-                      fixed_threshold_decision_node_1,
-                      fixed_threshold_decision_node_2,
-                      fixed_threshold_decision_node_3,
-                      sim_annealing_node,
-                      hypervolume_based]
+                        random_decision_node,
+                        fixed_threshold_decision_node_2,
+                        sim_annealing_node_1,
+                        sim_annealing_node_2,
+                        sim_annealing_node_3,
+                        hypervolume_based]
 
-    decision_nodes = [hypervolume_based]
+    # decision_nodes = [sim_annealing_node_1,
+    #                   sim_annealing_node_2,
+    #                   sim_annealing_node_3,
+    #                   fixed_threshold_decision_node_2]
 
     all_decision_node_results = {}
 
+    num = 0
     for decision_node in decision_nodes:
-        decision_node_name = decision_node.__class__.__name__
+        num += 1
+        decision_node_name = decision_node.__class__.__name__ + "_" + str(num)
         decision_node_info = analyser.evaluate_decision_nodes_front_quality(predictors_for_cols, decision_node)
+        log.info(f"RES: decision_node_name={decision_node_name}, all_tests_count={decision_node_info["all_tests_count"]}, tests_chosen_count={decision_node_info["tests_chosen_count"]}, front_all_tests_size={decision_node_info["front_all_tests_size"]}, quality_indicators_all_tests={decision_node_info["quality_indicators_all_tests"]}, front_from_decision_node_size={decision_node_info["front_from_decision_node_size"]}, quality_indicators_for_front={decision_node_info["quality_indicators_for_front"]}")
         all_decision_node_results[decision_node_name] = decision_node_info
 
-    results_df = pd.DataFrame.from_dict(all_decision_node_results, orient="columns")
-    res_filename = "all_decision_node_results.csv"
-    results_df.to_csv(res_filename)
-    print(tabulate(results_df, headers="keys"))
+# results_df = pd.DataFrame(all_decision_node_results)
+#     res_filename = "all_decision_node_results.csv"
+#     results_df.to_csv(res_filename)
+#     print(tabulate(results_df, headers="keys"))
 
 if __name__ == '__main__':
     test_evaluate_predictor_decisions_for_experiment(datasets.expt_config_eterry_human1_15files)

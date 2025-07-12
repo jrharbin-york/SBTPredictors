@@ -869,7 +869,6 @@ def test_classification(id_code, alg_name, alg_func, fig_filename_func, pd_res, 
     summary_res.loc[len(summary_res)] = summary_this_test
     return pd_res, summary_res
 
-
 def log_latex_summary_results(stats_results, filename="summary-res.tex", sorted_by_col="r2_score_mean", limit=10):
     if sorted_by_col is None:
         sorted_results = stats_results
@@ -923,11 +922,8 @@ def run_test(name_base, expt_config, combined_results_all_tests, alg_name, regre
 
     print(tabulate(stats_results, headers="keys"))
     individual_results.to_csv(results_file, sep=",")
-    print(tabulate(individual_results, headers="keys")) 
+    print(tabulate(individual_results, headers="keys"))
     stats_results.to_csv(summary_file, sep=",")
-
-    summary_file_latex = summary_file + ".tex"
-    log_latex_summary_results(stats_results, sorted_by_col="r2_score_mean", limit=20, filename=summary_file_latex)
 
     plot_param_variations_r2_score(stats_results, param1_name, param2_name, range_graph_title, filename=range_graph_file)
     plot_param_variations_r2_score(stats_results, param1_name, param2_name, range_graph_title, filename=range_graph_file_png)
