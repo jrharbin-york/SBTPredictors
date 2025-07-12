@@ -19,11 +19,11 @@ rocket_kernel_choices = [100,500,1000,2000]
 n_estimator_choices=[300]
 window_size_choices_secs=[0.5]
 
-full_choices = False
+full_choices = True
 
 if full_choices:
     n_estimator_choices = [300, 150, 50, 20]
-    window_size_choices_secs=[0.5,1.0,2.0,5.0,10.0]
+    window_size_choices_secs= [0.5,1.0,2.0,5.0,10.0]
 
 tsf_min_intervals = [3]
 max_alphas = [5,10,20]

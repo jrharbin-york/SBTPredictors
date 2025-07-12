@@ -9,8 +9,10 @@ from tabulate import tabulate
 
 import data_loader
 import datasets
-from decision_node import FixedThresholdBased, MissingMetric, NullDecisionNode, RandomDecisionNode, \
-    SimulatedAnnealingThreshold, IndicatorBasedDecisions
+from decision_node import MissingMetric, NullDecisionNode, RandomDecisionNode
+from fixed_threshold_decision_node import FixedThresholdBased
+from indicator_based_decision_node import IndicatorBasedDecisions
+from simulated_annealing_decision_node import SimulatedAnnealingThreshold
 
 log = structlog.get_logger()
 
@@ -183,6 +185,7 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
     fixed_threshold_decision_node_2 = FixedThresholdBased(target_metric_ids, 2, thresholds, False)
     fixed_threshold_decision_node_3 = FixedThresholdBased(target_metric_ids, 3, thresholds, False)
 
+    # TODO: set single node
     sim_annealing_node_1 = SimulatedAnnealingThreshold(target_metric_ids, distance_divisor_per_metric, initial_temperature=10.0)
     sim_annealing_node_2 = SimulatedAnnealingThreshold(target_metric_ids, distance_divisor_per_metric, initial_temperature=100.0)
     sim_annealing_node_3 = SimulatedAnnealingThreshold(target_metric_ids, distance_divisor_per_metric, initial_temperature=1000.0)

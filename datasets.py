@@ -38,9 +38,7 @@ expt_config_eterry_human1_15files = {
     "plot_x_upper" : 10.0,
     "plot_y_lower" : 0.0,
     "plot_y_upper" : 10.0,
-    "regression_graph_title" : "Predicted vs actual human-robot distance for mobile human (human1)",
-    "regression_graph_x" : "Predicted value of the ETERRY-human1 distance",
-    "regression_graph_y" : "Actual value of the ETERRY-human1 distance",
+    "regression_graph_title" : "(M1) Minimum robot to mobile human distance",
     "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
     "predictor_save_filename" : "eterry-human1-dist",
     "use_fixed_windows" : False
@@ -55,9 +53,7 @@ expt_config_eterry_statichumans_15files = {
     "plot_x_upper" : 4.0,
     "plot_y_lower" : 0.0,
     "plot_y_upper" : 4.0,
-    "regression_graph_title" : "Predicted vs actual human-robot distance for static humans (human2+human3)",
-    "regression_graph_x": "Predicted value of the ETERRY-humans distance",
-    "regression_graph_y": "Actual value of the ETERRY-humans distance",
+    "regression_graph_title" : "(M2) Minimum robot to static humans distance",
     "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
     "predictor_save_filename" : "eterry-statichumans-dist",
     "use_fixed_windows" : False
@@ -72,9 +68,7 @@ expt_config_eterry_pathcompletion_15files = {
     "plot_x_upper" : 1.0,
     "plot_y_lower" : 0.0,
     "plot_y_upper" : 1.0,
-    "regression_graph_title" : "Predicted vs actual path completion for ETERRY robot",
-    "regression_graph_x": "Predicted value of the path completion",
-    "regression_graph_y": "Actual value of the path completion",
+    "regression_graph_title" : "(M3) Path completion for ETERRY robot",
     "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
     "predictor_save_filename" : "eterry-pathcompletion",
     "use_fixed_windows" : False
@@ -116,7 +110,7 @@ expt_config_eterry_statichumans_1100 = {
     "plot_x_upper" : 4.0,
     "plot_y_lower" : 0.0,
     "plot_y_upper" : 4.0,
-    "regression_graph_title" : "Predicted vs actual human-robot distance for static humans (human2+human3)",
+    "regression_graph_title" : "Predicted vs actual human-robot distance for static humans",
     "regression_graph_x": "Predicted value of the ETERRY-humans distance",
     "regression_graph_y": "Actual value of the ETERRY-humans distance",
     "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
@@ -154,7 +148,6 @@ expt_config_eterry_cutdown = {
     "regression_graph_x": "Predicted value of the ETERRY-humans distance",
     "regression_graph_y": "Actual value of the ETERRY-humans distance",
     "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
-    "predictor_save_filename" : "eterry-statichumans-dist",
     "use_fixed_windows" : False
 }
 

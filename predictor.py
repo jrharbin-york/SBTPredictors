@@ -482,8 +482,30 @@ def plot_regression(regression_graph_title, predicted_vs_actual, expt_config, fi
     plt.clf()
     plt.scatter(predicted_vs_actual["predicted_val"], predicted_vs_actual["actual_val"],marker='x')
     plt.axline((1,1),(2,2), marker="None", linestyle="dotted", color="Black")
-    plt.xlabel("Predicted value of distance to sensitive point")
-    plt.ylabel("Actual value of distance to sensitive point")
+
+    SMALL_SIZE = 14
+    MEDIUM_SIZE = 16
+    BIGGER_SIZE = 20
+
+    plt.rc('font', size=SMALL_SIZE)          # controls default text sizes
+    plt.rc('axes', titlesize=SMALL_SIZE)     # fontsize of the axes title
+    plt.rc('axes', labelsize=MEDIUM_SIZE)    # fontsize of the x and y labels
+    plt.rc('xtick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+    plt.rc('ytick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+    plt.rc('legend', fontsize=SMALL_SIZE)    # legend fontsize
+    plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
+
+    xlabel = "Predicted value"
+    ylabel = "Actual value"
+    if "regression_graph_x" in expt_config:
+        xlabel = expt_config["regression_graph_x"]
+    if "regression_graph_y" in expt_config:
+        ylabel = expt_config["regression_graph_y"]
+
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    #plt.xlabel("Predicted value of distance to sensitive point")
+    #plt.ylabel("Actual value of distance to sensitive point")
 
     plot_x_lower = expt_config["plot_x_lower"]
     plot_x_upper = expt_config["plot_x_upper"]
