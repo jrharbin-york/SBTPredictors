@@ -12,7 +12,7 @@ import datasets
 from decision_node import MissingMetric, NullDecisionNode, RandomDecisionNode
 from fixed_threshold_decision_node import FixedThresholdBased
 from indicator_based_decision_node import IndicatorBasedDecisions
-from simulated_annealing_decision_node import SimulatedAnnealingThreshold
+from simulated_annealing_decision_node import SimulatedAnnealingThreshold, SimulatedAnnealingThresholdSingleDimensional
 
 log = structlog.get_logger()
 
@@ -27,6 +27,8 @@ class DecisionNodeAnalysis:
         self.metric_columns_direction = metric_columns_direction
         self.needed_operations = needed_operations
         self.metric_cols_chosen = list(metric_columns_direction.keys())
+
+        self.PREDICT_ALL_TEST_SIMULTANEOUSLY = True
 
     def compute_front_from_tests(self, metric_tests):
         # columns_direction is a hashtable of column name to either 'max' or 'min'
@@ -91,8 +93,18 @@ class DecisionNodeAnalysis:
         for col_name, pipeline_gen_func in predictors.items():
             print("Running predictor for ", test_id, " and column", col_name)
             # load the specific test definition here and make the prediction
+            # TODO: handle multiple ones here
             test_definition = self.load_test_definition(test_id)
             metric_results[col_name] = pipeline_gen_func.predict([test_definition])
+        return metric_results
+
+    def predict_all_tests(self, test_ids, predictors):
+        metric_results = {}
+        for col_name, pipeline_gen_func in predictors.items():
+            log.info(f"Running predictor for {col_name} on all tests")
+            # load the specific test definition here and make the prediction
+            test_definitions = data_loader.create_combined_data(self.base_files_dir, test_ids, self.needed_operations)
+            metric_results[col_name] = pipeline_gen_func.predict(test_definitions)
         return metric_results
 
     def choose_tests_from_decision_node(self, actual_test_metrics, predictors, decision_node):
@@ -103,6 +115,28 @@ class DecisionNodeAnalysis:
                 # get the test prediction for test N
                 test_id = test_metrics["testID"]
                 predicted_metrics = self.predict_for_test_id(test_id, predictors)
+                # can also compute intermediate indicators here from tests_chosen
+                should_execute = decision_node.execute_or_not(test_id, predicted_metrics)
+                if should_execute:
+                    # Log the decision to choose this test
+                    tests_chosen_rows.append(test_metrics)
+                    decision_node.accept_test(test_id, test_metrics)
+            tests_chosen = pd.DataFrame(tests_chosen_rows)
+            return tests_chosen
+        except MissingMetric as mmetric:
+            log.info("Metric", mmetric, " is missing")
+            raise FrontCalculationFailed(mmetric)
+
+    def choose_tests_from_decision_node_predictfirst(self, actual_test_metrics, predictors, decision_node):
+        tests_chosen_rows = []
+        try:
+            test_ids = actual_test_metrics["testID"]
+            predicted_metrics_all = self.predict_all_tests(test_ids, predictors)
+
+            for (test_index, test_metrics), predicted_metrics in zip(actual_test_metrics.iterrows(), predicted_metrics_all):
+                # get the test prediction for test N
+                test_id = test_metrics["testID"]
+
                 # can also compute intermediate indicators here from tests_chosen
                 should_execute = decision_node.execute_or_not(test_id, predicted_metrics)
                 if should_execute:
@@ -181,24 +215,32 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
         "pathCompletion": 1
     }
 
+    metric_weights = {
+        "distanceToHuman1": 1.0,
+        "distanceToStaticHumans": 1.0,
+        "pathCompletion": 1.0
+    }
+
     fixed_threshold_decision_node_1 = FixedThresholdBased(target_metric_ids, 1, thresholds, False)
     fixed_threshold_decision_node_2 = FixedThresholdBased(target_metric_ids, 2, thresholds, False)
     fixed_threshold_decision_node_3 = FixedThresholdBased(target_metric_ids, 3, thresholds, False)
 
     # TODO: set single node
-    sim_annealing_node_1 = SimulatedAnnealingThreshold(target_metric_ids, distance_divisor_per_metric, initial_temperature=10.0)
-    sim_annealing_node_2 = SimulatedAnnealingThreshold(target_metric_ids, distance_divisor_per_metric, initial_temperature=100.0)
-    sim_annealing_node_3 = SimulatedAnnealingThreshold(target_metric_ids, distance_divisor_per_metric, initial_temperature=1000.0)
+    sim_annealing_node_1 = SimulatedAnnealingThresholdSingleDimensional(target_metric_ids, distance_divisor_per_metric, metric_weights, initial_temperature=10.0)
+    sim_annealing_node_2 = SimulatedAnnealingThresholdSingleDimensional(target_metric_ids, distance_divisor_per_metric, metric_weights, initial_temperature=100.0)
+    sim_annealing_node_3 = SimulatedAnnealingThresholdSingleDimensional(target_metric_ids, distance_divisor_per_metric, metric_weights, initial_temperature=1000.0)
 
     hypervolume_based = IndicatorBasedDecisions("hypervolume", analyser, 1.0)
 
-    decision_nodes = [null_decision_node,
-                        random_decision_node,
-                        fixed_threshold_decision_node_2,
-                        sim_annealing_node_1,
-                        sim_annealing_node_2,
-                        sim_annealing_node_3,
-                        hypervolume_based]
+    decision_nodes = [
+        #null_decision_node,
+        #                random_decision_node,
+        #                fixed_threshold_decision_node_2,
+                         sim_annealing_node_1,
+                         sim_annealing_node_2,
+                         sim_annealing_node_3,
+        #                hypervolume_based
+    ]
 
     # decision_nodes = [sim_annealing_node_1,
     #                   sim_annealing_node_2,

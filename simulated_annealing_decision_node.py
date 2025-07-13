@@ -69,17 +69,26 @@ class SimulatedAnnealingThresholdSingleDimensional(SimulatedAnnealingThreshold):
     a single dimension. Then uses a probability based upon temperature"""
 
     # TODO: currently assumes minimisation only
-    def __init__(self, target_metrics_ids, distance_divisor_per_metric, initial_temperature = 100.0):
+    def __init__(self, target_metrics_ids, distance_divisor_per_metric, metric_weights, initial_temperature = 100.0):
         super().__init__()
         self.target_metric_ids = target_metrics_ids
         self.initial_temperature = initial_temperature
         self.current_best = None
         self.tests_per_epoch_increment = 1.0
+        self.metric_weights = metric_weights
         self.distance_divisor_per_metric = distance_divisor_per_metric
         self.epoch = 0
 
-    def reduction_function(self, predicted_metrics):
-        return 0.0
+    def reduction_function(self, metric_hash):
+        total = 0.0
+        for metric_id in self.target_metric_ids:
+            w = self.metric_weights[metric_id]
+            print(f"metric_hash={metric_hash}")
+            v = metric_hash[metric_id]
+            divisor = self.distance_divisor_per_metric[metric_id]
+            log.info(f"metric_id={metric_id}, w={w},v={v}, type(v)={type(v)} divisor={divisor}")
+            total += w * (v / divisor)
+        return total
 
     def execute_or_not(self, test_id, predicted_metrics):
         execute = False
@@ -88,15 +97,16 @@ class SimulatedAnnealingThresholdSingleDimensional(SimulatedAnnealingThreshold):
 
         # Execute if there is no value known for a particular metric
         if self.current_best is None:
+            log.debug(f"Executing test since no current best defined")
             execute = True
         else:
             dist = (prediction_for_m - self.current_best)
             t_now = self.initial_temperature / float(self.epoch + 1)
             metropolis = math.exp(-dist / t_now)
+            log.debug(f"dist={dist}, epoch={self.epoch}, t_now={t_now}, metropolis={metropolis}, execute={execute}")
             if (dist < 0) or random.uniform(0.0, 1.0) < metropolis:
                 execute = True
 
-        log.debug(f"dist={dist}, epoch={self.epoch}, t_now={t_now}, metropolis={metropolis}, execute={execute}")
         return execute
 
     def accept_test(self, test_id, actual_test_metrics):

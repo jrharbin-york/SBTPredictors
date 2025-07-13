@@ -3,7 +3,7 @@ import pandas as pd
 from decision_node import DecisionNode, log
 
 class IndicatorBasedDecisions(DecisionNode):
-    def __init__(self, indicator_id, decision_analysis, improvement_relative_factor = 1.0):
+    def __init__(self, indicator_id, decision_analysis, min_tests_to_accept_first, improvement_relative_factor = 1.0, ):
         super().__init__()
         # TODO: need to supply the sign and flip if the indicator should be maximised
         self.current_best_front = None
@@ -12,12 +12,12 @@ class IndicatorBasedDecisions(DecisionNode):
         self.decision_analysis = decision_analysis
         self.improvement_relative_factor = improvement_relative_factor
         self.accepted_tests = []
+        self.min_tests_to_accept_first = min_tests_to_accept_first
 
     def execute_or_not(self, test_id, predicted_test_metrics):
         # TODO: min_tests should be supplied as parameter
-        MIN_TESTS = 0
 
-        if (self.best_indicator_value is None) or (len(self.accepted_tests) < MIN_TESTS):
+        if (self.best_indicator_value is None) or (len(self.accepted_tests) < self.min_tests_to_accept_first):
             # Always accept the first test
             return True
         else:
