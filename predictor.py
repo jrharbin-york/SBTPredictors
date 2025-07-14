@@ -306,7 +306,7 @@ def run_regression_intervals(pipeline_gen_func_lower, pipeline_gen_func_median, 
 def create_tsf_regression(n_estimators=200, min_interval=3):
     combiner = ColumnConcatenator()
     log.debug("Constructing TSForest regressor with n_estimators=%u", n_estimators)
-    tsfr = combiner * TimeSeriesForestRegressor(n_estimators=n_estimators, n_jobs=-1)
+    tsfr = combiner * TimeSeriesForestRegressor(n_estimators=n_estimators, min_interval=min_interval, n_jobs=-1)
     return tsfr
 
 def create_tsfresh_windowed_featuresonly(params, n_estimators, windowsize, res_samples_per_second):
