@@ -127,17 +127,19 @@ class DecisionNodeAnalysis:
             log.info("Metric", mmetric, " is missing")
             raise FrontCalculationFailed(mmetric)
 
-    def choose_tests_from_decision_node_predictfirst(self, actual_test_metrics, predictors, decision_node):
+    def choose_tests_from_decision_node_predict_all_first(self, actual_test_metrics, predictors, decision_node):
         tests_chosen_rows = []
         try:
             test_ids = actual_test_metrics["testID"]
             predicted_metrics_all = self.predict_all_tests(test_ids, predictors)
 
-            for (test_index, test_metrics), predicted_metrics in zip(actual_test_metrics.iterrows(), predicted_metrics_all):
-                # get the test prediction for test N
+            metric_row_id = 0
+            for (test_index, test_metrics) in actual_test_metrics.iterrows():
                 test_id = test_metrics["testID"]
-
-                # can also compute intermediate indicators here from tests_chosen
+                # get the test prediction for test N - needs to be formatted as a dict of 1-element arrays, selecting
+                # just the element for that particular test
+                predicted_metrics = { key: value[metric_row_id] for key, value in predicted_metrics_all.items() }
+                metric_row_id += 1
                 should_execute = decision_node.execute_or_not(test_id, predicted_metrics)
                 if should_execute:
                     # Log the decision to choose this test
@@ -160,27 +162,29 @@ class DecisionNodeAnalysis:
         decision_node_results = {}
 
         decision_node.register_front_all_tests(front_all_tests)
-        chosen_by_decision_node = self.choose_tests_from_decision_node(self.metrics_test_df, predictors, decision_node)
+        if self.PREDICT_ALL_TEST_SIMULTANEOUSLY:
+            chosen_by_decision_node = self.choose_tests_from_decision_node_predict_all_first(self.metrics_test_df, predictors, decision_node)
+        else:
+            chosen_by_decision_node = self.choose_tests_from_decision_node(self.metrics_test_df, predictors, decision_node)
         tests_chosen_count = len(chosen_by_decision_node)
         front_with_decisions = self.compute_front_from_tests(chosen_by_decision_node)
         quality_indicators_for_front = self.indicators_for_front(front_with_decisions, front_all_tests)
         log.info(f"Front generate with the decision node {decision_node}:\n {front_with_decisions}")
         # TODO: log front_all_tests and front_with_decision_nodes
-        decision_node_results = {"decision_node" : decision_node,
+        decision_node_results = {"decision_node" : decision_node.description(),
                                  "front_all_tests_size" : len(front_all_tests),
                                  "tests_chosen_count" : tests_chosen_count,
                                  "all_tests_count" : len(self.metrics_test_df),
                                  "quality_indicators_all_tests" : str(quality_indicators_all_tests),
                                  "front_from_decision_node_size": len(front_with_decisions),
                                  "quality_indicators_for_front" : str(quality_indicators_for_front) }
-
         return decision_node_results
 
 def test_evaluate_predictor_decisions_for_experiment(expt_config):
     # Load predictors from files - separate predictor for all 3 metrics
-    human1_predfile = "./temp-saved-predictors/eterry-human1-dist.predictor"
-    statichumans_predfile = "./temp-saved-predictors/eterry-statichumans-dist.predictor"
-    path_predfile = "./temp-saved-predictors/eterry-pathcompletion.predictor"
+    human1_predfile = "./temp-saved-predictors/eterry-15files/human1.predictor"
+    statichumans_predfile = "./temp-saved-predictors/eterry-15files/statichumans.predictor"
+    path_predfile = "./temp-saved-predictors/eterry-15files/pathcompletion.predictor"
 
     predictors_for_cols = { "distanceToHuman1" : data_loader.load_predictor_from_file(human1_predfile),
                             "distanceToStaticHumans" : data_loader.load_predictor_from_file(statichumans_predfile),
@@ -242,10 +246,10 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
         #                hypervolume_based
     ]
 
-    # decision_nodes = [sim_annealing_node_1,
-    #                   sim_annealing_node_2,
-    #                   sim_annealing_node_3,
-    #                   fixed_threshold_decision_node_2]
+    temperature_ranges = range(0,200,10)
+    decision_nodes_temp_range = map (lambda temp: SimulatedAnnealingThresholdSingleDimensional(target_metric_ids, distance_divisor_per_metric, metric_weights, initial_temperature=temp), temperature_ranges)
+
+    decision_nodes = decision_nodes_temp_range
 
     all_decision_node_results = {}
 
@@ -257,10 +261,10 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
         log.info(f"RES: decision_node_name={decision_node_name}, all_tests_count={decision_node_info["all_tests_count"]}, tests_chosen_count={decision_node_info["tests_chosen_count"]}, front_all_tests_size={decision_node_info["front_all_tests_size"]}, quality_indicators_all_tests={decision_node_info["quality_indicators_all_tests"]}, front_from_decision_node_size={decision_node_info["front_from_decision_node_size"]}, quality_indicators_for_front={decision_node_info["quality_indicators_for_front"]}")
         all_decision_node_results[decision_node_name] = decision_node_info
 
-# results_df = pd.DataFrame(all_decision_node_results)
-#     res_filename = "all_decision_node_results.csv"
-#     results_df.to_csv(res_filename)
-#     print(tabulate(results_df, headers="keys"))
+    results_df = pd.DataFrame(all_decision_node_results.values())
+    res_filename = "all_decision_node_results.csv"
+    results_df.to_csv(res_filename)
+    print(tabulate(results_df, headers="keys"))
 
 if __name__ == '__main__':
     test_evaluate_predictor_decisions_for_experiment(datasets.expt_config_eterry_human1_15files)

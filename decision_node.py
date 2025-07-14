@@ -18,6 +18,9 @@ class DecisionNode(metaclass=ABCMeta):
     def execute_or_not(self, test_id, predicted_metrics):
         pass
 
+    def description(self):
+        return self.__class__.__name__
+
     def accept_test(self, test_id, test_metrics):
         pass
 
