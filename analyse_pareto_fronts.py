@@ -194,7 +194,7 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
                                  "distanceToStaticHumans" : "min",
                                  "pathCompletion": "min" }
 
-    decision_metrics_file = expt_config["data_dir_base"] + "/decisionMetrics.csv"
+    decision_metrics_file = ".temp-saved-predictors/eterry-15files/decisionMetrics.csv"
     decision_data_files, decision_metrics = data_loader.read_data(expt_config["data_dir_base"], decision_metrics_file)
     decision_nodes_info_for_splits = {}
 
