@@ -224,7 +224,7 @@ expt_config_turtlebot_multi_tb1_server_allops = {
 expt_config_turtlebot_multi_tb2_server_allops = {
     "dataset_name" : "Multiturtlebot-TB2",
     "data_dir_base" : data_dir_base_turtlebot_tb2,
-    "target_metric_name" : "distanceTB1Away",
+    "target_metric_name" : "distanceTB2Away",
     "needed_columns" : turtlebot_all_ops,
     "plot_x_lower" : 0.0,
     "plot_x_upper" : 4.0,
