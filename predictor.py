@@ -482,8 +482,30 @@ def plot_regression(regression_graph_title, predicted_vs_actual, expt_config, fi
     plt.clf()
     plt.scatter(predicted_vs_actual["predicted_val"], predicted_vs_actual["actual_val"],marker='x')
     plt.axline((1,1),(2,2), marker="None", linestyle="dotted", color="Black")
-    plt.xlabel("Predicted value of distance to sensitive point")
-    plt.ylabel("Actual value of distance to sensitive point")
+
+    SMALL_SIZE = 14
+    MEDIUM_SIZE = 16
+    BIGGER_SIZE = 20
+
+    plt.rc('font', size=SMALL_SIZE)          # controls default text sizes
+    plt.rc('axes', titlesize=SMALL_SIZE)     # fontsize of the axes title
+    plt.rc('axes', labelsize=MEDIUM_SIZE)    # fontsize of the x and y labels
+    plt.rc('xtick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+    plt.rc('ytick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+    plt.rc('legend', fontsize=SMALL_SIZE)    # legend fontsize
+    plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
+
+    xlabel = "Predicted value"
+    ylabel = "Actual value"
+    if "regression_graph_x" in expt_config:
+        xlabel = expt_config["regression_graph_x"]
+    if "regression_graph_y" in expt_config:
+        ylabel = expt_config["regression_graph_y"]
+
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    #plt.xlabel("Predicted value of distance to sensitive point")
+    #plt.ylabel("Actual value of distance to sensitive point")
 
     plot_x_lower = expt_config["plot_x_lower"]
     plot_x_upper = expt_config["plot_x_upper"]
@@ -578,6 +600,15 @@ def plot_confusion_matrix(predicted_vs_actual, filename="confusion.pdf", normali
     plt.savefig(filename)
     return None
 
+def save_decision_test_metrics(all_metrics_filename, decision_test_metrics_filename, decision_test_metrics):
+    # read all metrics
+    all_metrics = pd.read_csv(all_metrics_filename)
+    # Get the unique IDs for tests
+    metric_test_names = decision_test_metrics["testName"].unique()
+    filtered_all_metrics = all_metrics[all_metrics.iloc[:, 0].isin(metric_test_names)]
+    filtered_all_metrics = filtered_all_metrics.sort_values(axis=0, by="testID")
+    filtered_all_metrics.to_csv(decision_test_metrics_filename, index=False)
+
 def test_regression(name_base, id_code, result_desc, alg_name, alg_func, fig_filename_func, pd_res, expt_config, summary_res, alg_param1, alg_param2, k=5):
     params = {}
 
@@ -600,8 +631,12 @@ def test_regression(name_base, id_code, result_desc, alg_name, alg_func, fig_fil
     log.debug(f"decision_test_files={len(decision_test_files)}")
     log.debug(f"decision_test_metrics={len(decision_test_metrics)}")
 
-    decision_test_metrics_filename = name_base + "-decisionTestMetrics-" + str(alg_param1) + "-" + str(alg_param2) + ".csv"
-    decision_test_metrics.to_csv(decision_test_metrics_filename)
+    all_metrics_file = expt_config["data_dir_base"] + "/allMetrics.csv"
+    decision_test_metrics_filename = name_base + alg_name + "-decisionTestMetrics-" + str(alg_param1) + "-" + str(alg_param2) + ".csv"
+    save_decision_test_metrics(all_metrics_file, decision_test_metrics_filename, decision_test_metrics)
+
+    decision_test_metrics_filename_single = name_base + "-decisionTestMetricsSingle-" + str(alg_param1) + "-" + str(alg_param2) + ".csv"
+    decision_test_metrics.to_csv(decision_test_metrics_filename_single)
 
     k=5
     kf = KFold(n_splits=k, shuffle=k_fold_shuffle)
@@ -632,7 +667,7 @@ def test_regression(name_base, id_code, result_desc, alg_name, alg_func, fig_fil
 #       pipeline, r2_score_from_reg, predicted_vs_actual = run_regression_or_classifier(True, alg_func_delayed, alg_name, params)
         pipeline, r2_score_from_reg, predicted_vs_actual = memory_tracker.with_tracking(lambda: run_regression_or_classifier(True, alg_func_delayed, alg_name, params))
 
-        predictor_save_filename = name_base + expt_config["predictor_save_filename"] + "-split" + str(i) + "-" + str(alg_param1) + "-" + str(alg_param2) + ".predictor"
+        predictor_save_filename = name_base + alg_name + "-" + expt_config["predictor_save_filename"] + "-split" + str(i) + "-" + str(alg_param1) + "-" + str(alg_param2) + ".predictor"
         data_loader.save_predictor_to_file(predictor_save_filename, pipeline)
 
         time_end = timer()
