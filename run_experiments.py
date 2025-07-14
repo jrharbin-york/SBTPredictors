@@ -1,9 +1,9 @@
 import run_all_algs
 import datasets
 
-run_eterry = False
-run_mycobot = True
-run_turtlebot = True
+run_eterry = True
+run_mycobot = False
+run_turtlebot = False
 
 if __name__ == '__main__':
     if run_mycobot:
