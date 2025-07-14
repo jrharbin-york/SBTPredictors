@@ -12,7 +12,8 @@ import datasets
 from decision_node import MissingMetric, NullDecisionNode, RandomDecisionNode
 from fixed_threshold_decision_node import FixedThresholdBased
 from indicator_based_decision_node import IndicatorBasedDecisions
-from simulated_annealing_decision_node import SimulatedAnnealingThreshold, SimulatedAnnealingThresholdSingleDimensional
+from simulated_annealing_decision_node import SimulatedAnnealingThreshold, SimulatedAnnealingThresholdSingleDimensional, \
+    SimulatedAnnealingThresholdMultiDimensional
 
 log = structlog.get_logger()
 
@@ -20,15 +21,14 @@ class FrontCalculationFailed(Exception):
     """Calculation of a front failed"""
 
 class DecisionNodeAnalysis:
-    def __init__(self, base_files_dir, metrics_test_df, metric_columns_direction, needed_operations):
+    def __init__(self, base_files_dir, metrics_test_df, metric_columns_direction, needed_operations, PREDICT_ALL_TEST_SIMULTANEOUSLY = True):
         # Hash of the column name and direction - either "max" or "min"
         self.base_files_dir = base_files_dir
         self.metrics_test_df = metrics_test_df
         self.metric_columns_direction = metric_columns_direction
         self.needed_operations = needed_operations
         self.metric_cols_chosen = list(metric_columns_direction.keys())
-
-        self.PREDICT_ALL_TEST_SIMULTANEOUSLY = True
+        self.PREDICT_ALL_TEST_SIMULTANEOUSLY = PREDICT_ALL_TEST_SIMULTANEOUSLY
 
     def compute_front_from_tests(self, metric_tests):
         # columns_direction is a hashtable of column name to either 'max' or 'min'
@@ -194,7 +194,7 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
                                  "distanceToStaticHumans" : "min",
                                  "pathCompletion": "min" }
 
-    decision_metrics_file = expt_config["data_dir_base"] + "/decisionMetrics.csv"
+    decision_metrics_file = "./temp-saved-predictors/eterry-15files/decisionMetrics.csv"
     decision_data_files, decision_metrics = data_loader.read_data(expt_config["data_dir_base"], decision_metrics_file)
     decision_nodes_info_for_splits = {}
 
@@ -206,8 +206,8 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
 
     needed_operations = expt_config["needed_columns"]
     base_files_dir = expt_config["data_dir_base"]
-    analyser = DecisionNodeAnalysis(base_files_dir, decision_metrics, metric_columns_direction, needed_operations)
-
+    analyser_fast = DecisionNodeAnalysis(base_files_dir, decision_metrics, metric_columns_direction, needed_operations, True)
+    analyser_slow = DecisionNodeAnalysis(base_files_dir, decision_metrics, metric_columns_direction, needed_operations, False)
     null_decision_node = NullDecisionNode()
 
     random_decision_node_prob = 0.1
@@ -234,30 +234,40 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
     sim_annealing_node_2 = SimulatedAnnealingThresholdSingleDimensional(target_metric_ids, distance_divisor_per_metric, metric_weights, initial_temperature=100.0)
     sim_annealing_node_3 = SimulatedAnnealingThresholdSingleDimensional(target_metric_ids, distance_divisor_per_metric, metric_weights, initial_temperature=1000.0)
 
-    hypervolume_based = IndicatorBasedDecisions("hypervolume", analyser, 1.0)
+    hypervolume_based = IndicatorBasedDecisions("hypervolume", analyser_slow, 1.0)
 
-    decision_nodes = [
-        #null_decision_node,
-        #                random_decision_node,
-        #                fixed_threshold_decision_node_2,
-                         sim_annealing_node_1,
-                         sim_annealing_node_2,
-                         sim_annealing_node_3,
-        #                hypervolume_based
+    normal_decision_nodes = [
+        null_decision_node,
+        random_decision_node,
+        fixed_threshold_decision_node_1,
+        fixed_threshold_decision_node_2,
+        fixed_threshold_decision_node_3,
     ]
 
-    temperature_ranges = range(0,200,10)
-    decision_nodes_temp_range = map (lambda temp: SimulatedAnnealingThresholdSingleDimensional(target_metric_ids, distance_divisor_per_metric, metric_weights, initial_temperature=temp), temperature_ranges)
+    min_temperature = 10
+    max_temperature = 520
+    step_temperature = 20
+    temperature_ranges = range(min_temperature,max_temperature,step_temperature)
+    decision_nodes_single_range = list(map (lambda temp: SimulatedAnnealingThresholdSingleDimensional(target_metric_ids, distance_divisor_per_metric, metric_weights, initial_temperature=temp), temperature_ranges))
+    decision_nodes_multi_range = list(map (lambda temp: SimulatedAnnealingThresholdMultiDimensional(target_metric_ids, distance_divisor_per_metric, initial_temperature=temp), temperature_ranges))
 
-    decision_nodes = decision_nodes_temp_range
+    decision_nodes_fast = decision_nodes_single_range + decision_nodes_multi_range + normal_decision_nodes
+    decision_nodes_slow = [hypervolume_based]
 
     all_decision_node_results = {}
 
     num = 0
-    for decision_node in decision_nodes:
+    for decision_node in decision_nodes_fast:
         num += 1
         decision_node_name = decision_node.__class__.__name__ + "_" + str(num)
-        decision_node_info = analyser.evaluate_decision_nodes_front_quality(predictors_for_cols, decision_node)
+        decision_node_info = analyser_fast.evaluate_decision_nodes_front_quality(predictors_for_cols, decision_node)
+        log.info(f"RES: decision_node_name={decision_node_name}, all_tests_count={decision_node_info["all_tests_count"]}, tests_chosen_count={decision_node_info["tests_chosen_count"]}, front_all_tests_size={decision_node_info["front_all_tests_size"]}, quality_indicators_all_tests={decision_node_info["quality_indicators_all_tests"]}, front_from_decision_node_size={decision_node_info["front_from_decision_node_size"]}, quality_indicators_for_front={decision_node_info["quality_indicators_for_front"]}")
+        all_decision_node_results[decision_node_name] = decision_node_info
+
+    for decision_node in decision_nodes_slow:
+        num += 1
+        decision_node_name = decision_node.__class__.__name__ + "_" + str(num)
+        decision_node_info = analyser_slow.evaluate_decision_nodes_front_quality(predictors_for_cols, decision_node)
         log.info(f"RES: decision_node_name={decision_node_name}, all_tests_count={decision_node_info["all_tests_count"]}, tests_chosen_count={decision_node_info["tests_chosen_count"]}, front_all_tests_size={decision_node_info["front_all_tests_size"]}, quality_indicators_all_tests={decision_node_info["quality_indicators_all_tests"]}, front_from_decision_node_size={decision_node_info["front_from_decision_node_size"]}, quality_indicators_for_front={decision_node_info["quality_indicators_for_front"]}")
         all_decision_node_results[decision_node_name] = decision_node_info
 

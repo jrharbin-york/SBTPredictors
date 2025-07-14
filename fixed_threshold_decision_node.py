@@ -13,6 +13,9 @@ class FixedThresholdBased(DecisionNode):
     # simulated annealing type for the population management
     # based on indicators - e.g. would the hypervolume increase for selecting this test?
 
+    def description(self):
+        return f"FixedThreshold({self.metrics_needed})"
+
     def execute_or_not(self, test_id, predicted_metrics):
         found_count = 0
         for m in self.target_metric_ids:

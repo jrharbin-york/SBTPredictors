@@ -14,6 +14,9 @@ class IndicatorBasedDecisions(DecisionNode):
         self.accepted_tests = []
         self.min_tests_to_accept_first = min_tests_to_accept_first
 
+    def description(self):
+        return f"IndicatorBased({self.indicator_id})"
+
     def execute_or_not(self, test_id, predicted_test_metrics):
         # TODO: min_tests should be supplied as parameter
 

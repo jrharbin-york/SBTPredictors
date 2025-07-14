@@ -22,6 +22,9 @@ class SimulatedAnnealingThresholdMultiDimensional(SimulatedAnnealingThreshold):
         self.distance_divisor_per_metric = distance_divisor_per_metric
         self.epoch = 0
 
+    def description(self):
+        return f"SimAnnealingMulti({self.initial_temperature})"
+
     def execute_or_not(self, test_id, predicted_metrics):
         execute = False
         diff_m_squared = 0.0
@@ -78,6 +81,9 @@ class SimulatedAnnealingThresholdSingleDimensional(SimulatedAnnealingThreshold):
         self.metric_weights = metric_weights
         self.distance_divisor_per_metric = distance_divisor_per_metric
         self.epoch = 0
+
+    def description(self):
+        return f"SimAnnealingSingle({self.initial_temperature})"
 
     def reduction_function(self, metric_hash):
         total = 0.0
