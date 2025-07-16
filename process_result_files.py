@@ -21,7 +21,7 @@ file_names_in_result_dirs = ['TSFreshWin_GradBoost',
                              'TSForest',
                              'TSFreshWin_Ridge']
 
-def merge_results(use_case, metric, result_dirs):
+def merge_results(base_dir, use_case, metric, result_dirs):
     # Aggregate dataframe
     # For each compatible param choice:
     #
@@ -37,7 +37,7 @@ def merge_results(use_case, metric, result_dirs):
             # compute mean and stddev of the r2_score, mse and rmse
             alg_res_filename = f"regression-{use_case}-{metric}_{alg}-res.csv"
             log.debug(f"Loading alg_res_filename={alg_res_filename}...")
-            full_path = d + "/" + alg_res_filename
+            full_path = base_dir + "/" + d + "/" + alg_res_filename
             individual_results = pd.read_csv(full_path)
             log.debug(f"alg_res_filename={alg_res_filename} loaded")
 
@@ -69,5 +69,24 @@ def merge_results(use_case, metric, result_dirs):
     with open(save_res_filename + ".tex", "w") as latex_file:
         latex_file.write(latex)
 
-result_dirs_eterry = ["/home/jharbin/academic/soprano/SBTPredictors/for-aggregation-results/eterry/yesod_2025_07_14_20_26_54"]
-merge_results("ETERRY", "Human1Dist", result_dirs_eterry)
+result_dirs_eterry = ['eterry/yesod_2025_07_14_20_26_54',
+                      'eterry/csgpu3_2025_07_14_20_25_45',
+                      'eterry/csgpu2_2025_07_14_20_25_33' ]
+
+result_dirs_mycobot = ['mycobot/csgpu3_2025_07_15_11_29_19',
+                       'mycobot/csgpu3_2025_07_15_15_24_24',
+                       'mycobot/yesod_2025_07_15_15_01_54' ]
+
+result_dirs_turtlebot = ['turtlebot/csgpu2_2025_07_15_10_36_12',
+                         'turtlebot/kether_2025_07_15_03_08_02',
+                         'turtlebot/yesod_2025_07_15_03_51_07' ]
+
+base_dir = "./for-aggregation-results"
+merge_results(base_dir,"ETERRY", "Human1Dist", result_dirs_eterry)
+merge_results(base_dir,"ETERRY", "StaticHumanDist", result_dirs_eterry)
+merge_results(base_dir,"ETERRY", "PathCompletion", result_dirs_eterry)
+
+merge_results(base_dir,"Mycobot", "Fourjoints", result_dirs_mycobot)
+
+merge_results(base_dir,"Multiturtlebot", "TB1", result_dirs_turtlebot)
+merge_results(base_dir,"Multiturtlebot", "TB2", result_dirs_turtlebot)
