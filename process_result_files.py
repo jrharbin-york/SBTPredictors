@@ -51,7 +51,7 @@ def merge_results(use_case, metric, result_dirs):
 
     results_all_algs_df = pd.concat(results_all_algs)
     results_all_algs_df.columns = results_all_algs_df.columns.map('_'.join).str.strip('_')
-    print(tabulate.tabulate(results_all_algs_df, headers="keys"))
+    #print(tabulate.tabulate(results_all_algs_df, headers="keys"))
     sorted_res_all_algs = results_all_algs_df.sort_values(by='r2_score_mean', ascending=False, axis="index")
     resorted_cols = ['alg', 'r2_score_mean', 'r2_score_std', 'mse_mean', 'mse_std', 'rmse_mean','rmse_std' ]
 
@@ -60,9 +60,14 @@ def merge_results(use_case, metric, result_dirs):
     sorted_res_new_cols = sorted_res_new_cols.reset_index(level=[0, 1])
 
     print(tabulate.tabulate(sorted_res_new_cols, headers="keys"))
+    save_res_filename = "./for-aggregation-results/aggregated/" + use_case + "_" + metric
+    sorted_res_new_cols.to_csv(save_res_filename + ".csv")
     top_results = sorted_res_new_cols.head(10)
     latex = top_results.to_latex(index=False,float_format="{:0.2f}".format, escape=True)
-    print(latex)
+    #print(latex)
+    log.info(f"Saving to {save_res_filename}.tex")
+    with open(save_res_filename + ".tex", "w") as latex_file:
+        latex_file.write(latex)
 
 result_dirs_eterry = ["/home/jharbin/academic/soprano/SBTPredictors/for-aggregation-results/eterry/yesod_2025_07_14_20_26_54"]
 merge_results("ETERRY", "Human1Dist", result_dirs_eterry)
