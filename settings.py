@@ -1,16 +1,5 @@
 # Settings for the algorithms
 
-#n_estimator_choices = [5,20,50,100,200,300]
-#window_size_choices_secs = [0.5,1,2,5,10]
-#max_depth_choices=[2,3,4,5,6,7,8]
-
-# TSF also uses n_estimator
-#tsf_min_intervals = [1,2,3,5,10,20] # 3 is the default
-
-# Rocket params: number of kernels and maximum alpha
-#rocket_kernels = [100,1000,5000,10000,50000]
-#max_alphas = [5,10,20,50]
-
 learning_rates=[0.1,0.05,0.03, 0.2, 0.3]
 
 rocket_kernel_choices = [100,500,1000,2000]

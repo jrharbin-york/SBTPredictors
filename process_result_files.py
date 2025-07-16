@@ -1,6 +1,7 @@
 import pandas as pd
 import structlog
 import tabulate
+import numpy as np
 
 log = structlog.get_logger()
 
@@ -21,6 +22,27 @@ file_names_in_result_dirs = ['TSFreshWin_GradBoost',
                              'TSForest',
                              'TSFreshWin_Ridge']
 
+accepted_row_count = 0
+min_rows = 4
+approaches_seen = {}
+
+def should_accept_row_in_df(row):
+    global accepted_row_count, min_rows, approaches_seen
+    approach = row['alg']
+    accept = False
+    if accepted_row_count < min_rows:
+        accept = True
+
+    if not (approach in approaches_seen):
+        accept = True
+
+    approaches_seen[approach] = True
+
+    if accept:
+        accepted_row_count += 1
+
+    return accept
+
 def merge_results(base_dir, use_case, metric, result_dirs):
     # Aggregate dataframe
     # For each compatible param choice:
@@ -40,31 +62,42 @@ def merge_results(base_dir, use_case, metric, result_dirs):
             full_path = base_dir + "/" + d + "/" + alg_res_filename
             individual_results = pd.read_csv(full_path)
             log.debug(f"alg_res_filename={alg_res_filename} loaded")
-
             dataframes_for_alg.append(individual_results)
-            combined_dfs = pd.concat(dataframes_for_alg, ignore_index=True)
-            # the results need to be aggregated across params, e.g. for param1 and param2 - use group by
-            results_one_alg = combined_dfs.groupby(["param1", "param2"])[['r2_score', 'mse', 'rmse']].agg(['mean', 'std'])
-            results_one_alg["alg"] = alg
-            print(tabulate.tabulate(results_one_alg, headers="keys"))
-            results_all_algs.append(results_one_alg)
+
+        combined_dfs = pd.concat(dataframes_for_alg, ignore_index=True)
+        # the results need to be aggregated across params, e.g. for param1 and param2 - use group by
+        results_one_alg = combined_dfs.groupby(["param1", "param2"])[['r2_score', 'mse', 'rmse']].agg(['mean', 'std'])
+        results_one_alg["alg"] = alg
+        print(tabulate.tabulate(results_one_alg, headers="keys"))
+        results_all_algs.append(results_one_alg)
 
     results_all_algs_df = pd.concat(results_all_algs)
     results_all_algs_df.columns = results_all_algs_df.columns.map('_'.join).str.strip('_')
-    #print(tabulate.tabulate(results_all_algs_df, headers="keys"))
+
     sorted_res_all_algs = results_all_algs_df.sort_values(by='r2_score_mean', ascending=False, axis="index")
     resorted_cols = ['alg', 'r2_score_mean', 'r2_score_std', 'mse_mean', 'mse_std', 'rmse_mean','rmse_std' ]
 
     sorted_res_new_cols = sorted_res_all_algs[resorted_cols]
-    sorted_res_new_cols = sorted_res_new_cols.round(2)
     sorted_res_new_cols = sorted_res_new_cols.reset_index(level=[0, 1])
 
     print(tabulate.tabulate(sorted_res_new_cols, headers="keys"))
     save_res_filename = "./for-aggregation-results/aggregated/" + use_case + "_" + metric
     sorted_res_new_cols.to_csv(save_res_filename + ".csv")
-    top_results = sorted_res_new_cols.head(10)
-    latex = top_results.to_latex(index=False,float_format="{:0.2f}".format, escape=True)
-    #print(latex)
+
+    # reset params
+    global accepted_row_count, min_rows, approaches_seen
+    accepted_row_count = 0
+    min_rows = 5
+    approaches_seen = {}
+
+    sorted_res_new_cols['rank'] = np.arange(1, len(sorted_res_new_cols) + 1)
+
+    print(f"column names={sorted_res_new_cols.columns}")
+
+    top_results = sorted_res_new_cols[sorted_res_new_cols.apply(should_accept_row_in_df, axis=1)]
+
+    latex = top_results.to_latex(index=False, float_format="{:0.3f}".format, escape=True)
+
     log.info(f"Saving to {save_res_filename}.tex")
     with open(save_res_filename + ".tex", "w") as latex_file:
         latex_file.write(latex)

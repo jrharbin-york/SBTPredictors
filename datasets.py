@@ -1,6 +1,8 @@
 ################################################################################
 ## Mycobot
 ################################################################################
+from memory_tracking import FilProfilerMemoryTracker, TraceMallocMemoryTracker
+
 mycobot_fourjoints_3000 = "./input_csv_data/mycobot-fourjoints-3000"
 
 mycobot_all_ops = ["distortJoint0", "distortJoint1", "distortJoint2", "distortJoint3"]
@@ -17,7 +19,8 @@ expt_config_mycobot_fourjoints_3000 = {
     "regression_graph_title" : "Predicted vs actual cylinder position error for Mycobot case",
     "range_graph_title" : "r2 score for Mycobot case - across different hyperparameters",
     "predictor_save_filename" : "mycobot-error-dist",
-    "use_fixed_windows" : True
+    "use_fixed_windows" : True,
+    "memory_tracking_creator" : lambda filename: TraceMallocMemoryTracker()
 } 
 
 ################################################################################
@@ -41,7 +44,8 @@ expt_config_eterry_human1_15files = {
     "regression_graph_title" : "(M1) Minimum robot to mobile human distance",
     "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
     "predictor_save_filename" : "eterry-human1-dist",
-    "use_fixed_windows" : False
+    "use_fixed_windows" : False,
+    "memory_tracking_creator": lambda filename: TraceMallocMemoryTracker()
 }
 
 expt_config_eterry_statichumans_15files = {
@@ -56,7 +60,8 @@ expt_config_eterry_statichumans_15files = {
     "regression_graph_title" : "(M2) Minimum robot to static humans distance",
     "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
     "predictor_save_filename" : "eterry-statichumans-dist",
-    "use_fixed_windows" : False
+    "use_fixed_windows" : False,
+    "memory_tracking_creator": lambda filename: TraceMallocMemoryTracker()
 }
 
 expt_config_eterry_pathcompletion_15files = {
@@ -71,7 +76,8 @@ expt_config_eterry_pathcompletion_15files = {
     "regression_graph_title" : "(M3) Path completion for ETERRY robot",
     "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
     "predictor_save_filename" : "eterry-pathcompletion",
-    "use_fixed_windows" : False
+    "use_fixed_windows" : False,
+    "memory_tracking_creator": lambda filename: TraceMallocMemoryTracker()
 }
 
 ################################################################################
@@ -98,7 +104,8 @@ expt_config_eterry_human1_1100 = {
     "regression_graph_y" : "Actual value of the ETERRY-human1 distance",
     "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
     "predictor_save_filename" : "eterry-human1-dist",
-    "use_fixed_windows" : False
+    "use_fixed_windows" : False,
+    "memory_tracking_creator": lambda filename: TraceMallocMemoryTracker()
 }
 
 expt_config_eterry_statichumans_1100 = {
@@ -115,7 +122,8 @@ expt_config_eterry_statichumans_1100 = {
     "regression_graph_y": "Actual value of the ETERRY-humans distance",
     "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
     "predictor_save_filename" : "eterry-statichumans-dist",
-    "use_fixed_windows" : False
+    "use_fixed_windows" : False,
+    "memory_tracking_creator": lambda filename: TraceMallocMemoryTracker()
 }
 
 expt_config_eterry_pathcompletion_1100 = {
@@ -132,7 +140,8 @@ expt_config_eterry_pathcompletion_1100 = {
     "regression_graph_y": "Actual value of the path completion",
     "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
     "predictor_save_filename" : "eterry-pathcompletion",
-    "use_fixed_windows" : False
+    "use_fixed_windows" : False,
+    "memory_tracking_creator": lambda filename: TraceMallocMemoryTracker()
 }
 
 expt_config_eterry_cutdown = {
@@ -148,7 +157,8 @@ expt_config_eterry_cutdown = {
     "regression_graph_x": "Predicted value of the ETERRY-humans distance",
     "regression_graph_y": "Actual value of the ETERRY-humans distance",
     "range_graph_title" : "r2 score for ETERRY case across different hyperparameters",
-    "use_fixed_windows" : False
+    "use_fixed_windows" : False,
+    "memory_tracking_creator": lambda filename: TraceMallocMemoryTracker()
 }
 
 ################################################################################
@@ -171,7 +181,8 @@ expt_config_eterry_humandist_1800 = {
     "plot_y_upper" : 9.0,
     "regression_graph_title" : "Predicted vs actual cylinder position error for Mycobot case",
     "range_graph_title" : "r2 score for Mycobot case - across different hyperparameters",
-    "use_fixed_windows" : False
+    "use_fixed_windows" : False,
+    "memory_tracking_creator": lambda filename: TraceMallocMemoryTracker()
 }
 
 ##### ETERRY ROBOTDIST_AT_END
@@ -186,7 +197,8 @@ expt_config_eterry_robotdist_1800 = {
     "plot_y_upper" : 22.0,
     "regression_graph_title" : "Predicted vs actual cylinder position error for Mycobot case",
     "range_graph_title" : "r2 score for Mycobot case - across different hyperparameters",
-    "use_fixed_windows" : False
+    "use_fixed_windows" : False,
+    "memory_tracking_creator": lambda filename: TraceMallocMemoryTracker()
 }
 
 ################################################################################
@@ -211,6 +223,7 @@ expt_config_turtlebot_multi_tb1_server_allops = {
     "range_graph_title" : "r2 score for Turtlebot TB1",
     "use_fixed_windows" : False,
     "predictor_save_filename" : "turtlebot-tb1-dist",
+    "memory_tracking_creater": lambda filename: TraceMallocMemoryTracker()
 }
 
 ##### TURTLEBOT TB2 dist
@@ -227,4 +240,5 @@ expt_config_turtlebot_multi_tb2_server_allops = {
     "range_graph_title" : "r2 score for Turtlebot TB1",
     "use_fixed_windows" : False,
     "predictor_save_filename" : "turtlebot-tb2-dist",
+    "memory_tracking_creator": lambda filename: TraceMallocMemoryTracker()
 }
