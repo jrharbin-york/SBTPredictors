@@ -180,11 +180,11 @@ class DecisionNodeAnalysis:
                                  "quality_indicators_for_front" : str(quality_indicators_for_front) }
         return decision_node_results
 
-def test_evaluate_predictor_decisions_for_experiment(expt_config):
+def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path, pred_metric_files):
     # Load predictors from files - separate predictor for all 3 metrics
-    human1_predfile = "./temp-saved-predictors/eterry-15files/human1.predictor"
-    statichumans_predfile = "./temp-saved-predictors/eterry-15files/statichumans.predictor"
-    path_predfile = "./temp-saved-predictors/eterry-15files/pathcompletion.predictor"
+    human1_predfile = pred_base_path + "/" + pred_metric_files["Human1_Pred"] # "./temp-saved-predictors/eterry-15files/human1.predictor"
+    statichumans_predfile = pred_base_path + "/" + pred_metric_files["StaticHumans_Pred"] # ./temp-saved-predictors/eterry-15files/statichumans.predictor"
+    path_predfile = pred_base_path + "/" + pred_metric_files["PathCompletion_Pred"] #path_predfile = "./temp-saved-predictors/eterry-15files/pathcompletion.predictor"
 
     predictors_for_cols = { "distanceToHuman1" : data_loader.load_predictor_from_file(human1_predfile),
                             "distanceToStaticHumans" : data_loader.load_predictor_from_file(statichumans_predfile),
@@ -194,7 +194,8 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
                                  "distanceToStaticHumans" : "min",
                                  "pathCompletion": "min" }
 
-    decision_metrics_file = "./temp-saved-predictors/eterry-15files/decisionMetrics.csv"
+    #decision_metrics_file = "./temp-saved-predictors/eterry-15files/decisionMetrics.csv"
+    decision_metrics_file = pred_base_path + "/" + pred_metric_files["DecisionMetrics"]
     decision_data_files, decision_metrics = data_loader.read_data(expt_config["data_dir_base"], decision_metrics_file)
     decision_nodes_info_for_splits = {}
 
@@ -228,11 +229,6 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
     fixed_threshold_decision_node_1 = FixedThresholdBased(target_metric_ids, 1, thresholds, False)
     fixed_threshold_decision_node_2 = FixedThresholdBased(target_metric_ids, 2, thresholds, False)
     fixed_threshold_decision_node_3 = FixedThresholdBased(target_metric_ids, 3, thresholds, False)
-
-    # TODO: set single node
-    sim_annealing_node_1 = SimulatedAnnealingThresholdSingleDimensional(target_metric_ids, distance_divisor_per_metric, metric_weights, initial_temperature=10.0)
-    sim_annealing_node_2 = SimulatedAnnealingThresholdSingleDimensional(target_metric_ids, distance_divisor_per_metric, metric_weights, initial_temperature=100.0)
-    sim_annealing_node_3 = SimulatedAnnealingThresholdSingleDimensional(target_metric_ids, distance_divisor_per_metric, metric_weights, initial_temperature=1000.0)
 
     hypervolume_based = IndicatorBasedDecisions("hypervolume", analyser_slow, 1.0)
 
@@ -276,5 +272,34 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config):
     results_df.to_csv(res_filename)
     print(tabulate(results_df, headers="keys"))
 
+pred_eterry_base_path = "./for-aggregation-results/chosen-predictors/predictors/eterry"
+
+eterry_file_options = [
+    # top choices for approaches
+    {     "Human1_Pred" :       "regressionETERRY-Human1DistTSFreshWin_GradBoost-eterry-human1-dist-split0-50-0.5.predictor",           # TSFreshWin_GradBoost_50_0.5
+          "StaticHumans_Pred" : "regressionETERRY-StaticHumanDist_TSForest-eterry-statichumans-dist-split0-300-10.0.predictor",      # TSForest_300_10.0
+          "PathCompletion_Pred":"regressionETERRY-PathCompletionTSFreshWin_GradBoost-eterry-pathcompletion-split0-150-0.5.predictor",     # TSFreshWin_GradBoost_150_0.5,
+          "decisonMetrics" : "eterry-decisionTestMetrics.csv"
+    },
+
+    # second choices for approaches
+    {    "Human1_Pred": "regressionETERRY-Human1Dist_MiniRocket_Ridge-eterry-human1-dist-split0-500-20.predictor",                            # MiniRocket_Ridge_500_20.0
+         "StaticHumans_Pred": "regressionETERRY-StaticHumanDistTSFreshWin_GradBoost-eterry-statichumans-dist-split0-150-0.5.predictor",       # TSFreshWin_GradBoost_150_0.5
+         "PathCompletion_Pred": "regressionETERRY-PathCompletion_TSForest-eterry-pathcompletion-split0-50-1.0.predictor",                      # TSForest_50_1.0
+         "decisonMetrics": "eterry-decisionTestMetrics.csv"
+    },
+
+    # third choices for approaches
+    {    "Human1_Pred": "regressionETERRY-Human1Dist_MiniRocket_GradBoost-eterry-human1-dist-split0-1000-50.predictor",            # MiniRocket_GradBoost_1000_50
+         "StaticHumans_Pred": "regressionETERRY-StaticHumanDist_MiniRocket_GradBoost-eterry-statichumans-dist-split0-2000-150.predictor",       # MiniRocket_GradBoost_2000_150
+         "PathCompletion_Pred": "regressionETERRY-PathCompletion_MiniRocket_GradBoost-eterry-pathcompletion-split0-500-20.predictor",      # MiniRocket_GradBoost_500_20.0
+         "decisonMetrics": "eterry-decisionTestMetrics.csv"
+    }
+]
+
+def run_analysis_different_fronts():
+    for pred_files in eterry_file_options:
+        test_evaluate_predictor_decisions_for_experiment(datasets.expt_config_eterry_human1_15files, pred_eterry_base_path, pred_files)
+
 if __name__ == '__main__':
-    test_evaluate_predictor_decisions_for_experiment(datasets.expt_config_eterry_human1_15files)
+    run_analysis_different_fronts()
