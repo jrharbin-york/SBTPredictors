@@ -258,46 +258,33 @@ def run_all_algs_on_dataset(expt_config, using_inceptiontime = True):
     print(tabulate(combined_results_all_algs, headers="keys"))
 
 
-def run_alg_memory_tracking(expt_config, memory_filename=None):
+def run_filprofiler_memory_tracking(expt_config, memory_filename, selected_alg):
     global combined_results_all_algs
 
     if not (memory_filename is None):
-        expt_config["memory_tracking_class"] = lambda filename: FilProfilerMemoryTracker(filename)
+        expt_config["memory_tracking_class"] = lambda: FilProfilerMemoryTracker(memory_filename)
 
     combined_results_all_algs = None
     dataset_name = expt_config["dataset_name"]
 
     name_base = data_loader.create_directory_for_results(expt_config["dataset_name"]) + "/"
 
-    run_intervals = True
-
     if expt_config["use_fixed_windows"]:
-        run_tsfreshwin_gradboost_fixed_window_size(name_base, dataset_name, expt_config)
-        run_tsfreshwin_ridge_fixed_window_size(name_base, dataset_name, expt_config)
-        run_tsforest_fixed_window_size(name_base, dataset_name, expt_config)
+        if selected_alg == "TSFreshWin_GradBoost":
+            run_tsfreshwin_gradboost_fixed_window_size(name_base, dataset_name, expt_config)
+        if selected_alg == "TSFreshWin_Ridge":
+            run_tsfreshwin_ridge_fixed_window_size(name_base, dataset_name, expt_config)
+        if selected_alg == "TSForest":
+            run_tsforest_fixed_window_size(name_base, dataset_name, expt_config)
     else:
-        run_tsfreshwin_gradboost(name_base, dataset_name, expt_config)
-        run_tsfreshwin_ridge(name_base, dataset_name, expt_config)
+        if selected_alg == "TSFreshWin_GradBoost":
+            run_tsfreshwin_gradboost(name_base, dataset_name, expt_config)
+        if selected_alg == "TSFreshWin_Ridge":
+            run_tsfreshwin_ridge(name_base, dataset_name, expt_config)
 
-    run_minirocket_gradboost(name_base, dataset_name, expt_config)
-    run_minirocket_ridge(name_base, dataset_name, expt_config)
-    run_tsforest(name_base, dataset_name, expt_config)
-
-    # save results before running inceptiontime
-    print("Combined results sorted by r2_score...\n")
-    combined_result_file = name_base + dataset_name + "_sorted_summary_results.csv"
-    combined_results_all_algs.to_csv(combined_result_file, sep=",")
-    print(tabulate(combined_results_all_algs, headers="keys"))
-    # Log LaTeX results
-    summary_file_latex = name_base + dataset_name + "_sorted_summary_results.tex"
-    predictor.log_latex_summary_results(combined_results_all_algs, sorted_by_col="r2_score_mean", limit=20,
-                                        filename=summary_file_latex)
-
-    # inceptiontime is very long running
-    if using_inceptiontime:
-        run_inceptiontime(dataset_name, expt_config)
-
-    print("Combined results sorted by r2_score...\n")
-    combined_result_file = dataset_name + "_sorted_summary_results.csv"
-    combined_results_all_algs.to_csv(combined_result_file, sep=",")
-    print(tabulate(combined_results_all_algs, headers="keys"))
+    if selected_alg == "MiniRocket_GradBoost":
+        run_minirocket_gradboost(name_base, dataset_name, expt_config)
+    if selected_alg == "MiniRocket_Ridge":
+        run_minirocket_ridge(name_base, dataset_name, expt_config)
+    if selected_alg == "TSForest":
+        run_tsforest(name_base, dataset_name, expt_config)

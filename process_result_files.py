@@ -75,14 +75,12 @@ def merge_results(base_dir, use_case, metric, result_dirs):
     results_all_algs_df.columns = results_all_algs_df.columns.map('_'.join).str.strip('_')
 
     sorted_res_all_algs = results_all_algs_df.sort_values(by='r2_score_mean', ascending=False, axis="index")
-    resorted_cols = ['alg', 'r2_score_mean', 'r2_score_std', 'mse_mean', 'mse_std', 'rmse_mean','rmse_std' ]
 
+    sorted_res_all_algs['rank'] = np.arange(1, len(sorted_res_all_algs) + 1)
+    sorted_res_all_algs.reset_index(level=[0, 1], inplace=True)
+
+    resorted_cols = ['rank', 'param1', 'param2', 'alg', 'r2_score_mean', 'r2_score_std', 'mse_mean', 'mse_std', 'rmse_mean','rmse_std' ]
     sorted_res_new_cols = sorted_res_all_algs[resorted_cols]
-    sorted_res_new_cols = sorted_res_new_cols.reset_index(level=[0, 1])
-
-    print(tabulate.tabulate(sorted_res_new_cols, headers="keys"))
-    save_res_filename = "./for-aggregation-results/aggregated/" + use_case + "_" + metric
-    sorted_res_new_cols.to_csv(save_res_filename + ".csv")
 
     # reset params
     global accepted_row_count, min_rows, approaches_seen
@@ -90,13 +88,15 @@ def merge_results(base_dir, use_case, metric, result_dirs):
     min_rows = 5
     approaches_seen = {}
 
-    sorted_res_new_cols['rank'] = np.arange(1, len(sorted_res_new_cols) + 1)
+    save_res_filename = "./for-aggregation-results/aggregated/" + use_case + "_" + metric
+    sorted_res_new_cols.to_csv(save_res_filename + ".csv")
+    print(tabulate.tabulate(sorted_res_new_cols, headers="keys"))
 
     print(f"column names={sorted_res_new_cols.columns}")
 
     top_results = sorted_res_new_cols[sorted_res_new_cols.apply(should_accept_row_in_df, axis=1)]
 
-    latex = top_results.to_latex(index=False, float_format="{:0.3f}".format, escape=True)
+    latex = top_results.to_latex(index=False, index_names="rank", float_format="{:0.3f}".format, escape=True)
 
     log.info(f"Saving to {save_res_filename}.tex")
     with open(save_res_filename + ".tex", "w") as latex_file:
