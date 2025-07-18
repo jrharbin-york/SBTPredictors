@@ -45,6 +45,16 @@ class DecisionNodeAnalysis:
         else:
             return pd.DataFrame([], columns=self.metric_cols_chosen)
 
+    def common_ids_proportion_between_two_fronts(self, front, ref_front):
+        if len(ref_front) > 0 and len(front) > 0:
+            unique_ids_on_front = set(front["testID"])
+            unique_ids_on_ref_front = set(ref_front["testID"])
+            common_ids = unique_ids_on_front.intersection(unique_ids_on_ref_front)
+            return len(common_ids) / len(unique_ids_on_ref_front)
+        else:
+            # if either front empty, return 0
+            return 0.0
+
     def max_point_from_front(self, front):
         # TODO: check that this is using the max_point properly
         metric_names = self.metric_cols_chosen
@@ -169,15 +179,29 @@ class DecisionNodeAnalysis:
         tests_chosen_count = len(chosen_by_decision_node)
         front_with_decisions = self.compute_front_from_tests(chosen_by_decision_node)
         quality_indicators_for_front = self.indicators_for_front(front_with_decisions, front_all_tests)
+        quality_indicators_all_tests = self.indicators_for_front(front_all_tests, front_all_tests)
+
+        front_hypervolume = quality_indicators_for_front["hypervolume"]
+        ref_front_hypervolume = quality_indicators_all_tests["hypervolume"]
+        front_igd = quality_indicators_for_front["igd"]
+        ref_front_igd = quality_indicators_all_tests["igd"]
+
+        proportion_of_ref_tests_included = self.common_ids_proportion_between_two_fronts(front_with_decisions, front_all_tests)
         log.info(f"Front generate with the decision node {decision_node}:\n {front_with_decisions}")
         # TODO: log front_all_tests and front_with_decision_nodes
         decision_node_results = {"decision_node" : decision_node.description(),
                                  "front_all_tests_size" : len(front_all_tests),
                                  "tests_chosen_count" : tests_chosen_count,
                                  "all_tests_count" : len(self.metrics_test_df),
-                                 "quality_indicators_all_tests" : str(quality_indicators_all_tests),
+                                 "all_tests_hypervolume" : ref_front_hypervolume,
+                                 "all_tests_igd" : ref_front_igd,
+                                 "decision_node_hypervolume" : front_hypervolume,
+                                 "decision_node_igd" : front_igd,
                                  "front_from_decision_node_size": len(front_with_decisions),
-                                 "quality_indicators_for_front" : str(quality_indicators_for_front) }
+                                 "quality_indicators_for_front" : quality_indicators_for_front,
+                                 "quality_indicators_all_tests" : quality_indicators_all_tests,
+                                 "proportion_of_ref_tests_included" :  proportion_of_ref_tests_included
+                                 }
         return decision_node_results
 
 def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path, pred_metric_files):
@@ -194,8 +218,7 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path
                                  "distanceToStaticHumans" : "min",
                                  "pathCompletion": "min" }
 
-    #decision_metrics_file = "./temp-saved-predictors/eterry-15files/decisionMetrics.csv"
-    decision_metrics_file = pred_base_path + "/" + pred_metric_files["DecisionMetrics"]
+    decision_metrics_file = pred_base_path + "/" + pred_metric_files["decisionMetrics"]
     decision_data_files, decision_metrics = data_loader.read_data(expt_config["data_dir_base"], decision_metrics_file)
     decision_nodes_info_for_splits = {}
 
@@ -268,7 +291,7 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path
         all_decision_node_results[decision_node_name] = decision_node_info
 
     results_df = pd.DataFrame(all_decision_node_results.values())
-    res_filename = "all_decision_node_results.csv"
+    res_filename = pred_metric_files["result_filename"]
     results_df.to_csv(res_filename)
     print(tabulate(results_df, headers="keys"))
 
@@ -279,21 +302,24 @@ eterry_file_options = [
     {     "Human1_Pred" :       "regressionETERRY-Human1DistTSFreshWin_GradBoost-eterry-human1-dist-split0-50-0.5.predictor",           # TSFreshWin_GradBoost_50_0.5
           "StaticHumans_Pred" : "regressionETERRY-StaticHumanDist_TSForest-eterry-statichumans-dist-split0-300-10.0.predictor",      # TSForest_300_10.0
           "PathCompletion_Pred":"regressionETERRY-PathCompletionTSFreshWin_GradBoost-eterry-pathcompletion-split0-150-0.5.predictor",     # TSFreshWin_GradBoost_150_0.5,
-          "decisonMetrics" : "eterry-decisionTestMetrics.csv"
+          "decisionMetrics" : "eterry-decisionTestMetrics.csv",
+          "result_filename" : "eterry-choice1-decisions.csv"
     },
 
     # second choices for approaches
     {    "Human1_Pred": "regressionETERRY-Human1Dist_MiniRocket_Ridge-eterry-human1-dist-split0-500-20.predictor",                            # MiniRocket_Ridge_500_20.0
          "StaticHumans_Pred": "regressionETERRY-StaticHumanDistTSFreshWin_GradBoost-eterry-statichumans-dist-split0-150-0.5.predictor",       # TSFreshWin_GradBoost_150_0.5
          "PathCompletion_Pred": "regressionETERRY-PathCompletion_TSForest-eterry-pathcompletion-split0-50-1.0.predictor",                      # TSForest_50_1.0
-         "decisonMetrics": "eterry-decisionTestMetrics.csv"
+         "decisionMetrics": "eterry-decisionTestMetrics.csv",
+         "result_filename" : "eterry-choice2-decisions.csv"
     },
 
     # third choices for approaches
     {    "Human1_Pred": "regressionETERRY-Human1Dist_MiniRocket_GradBoost-eterry-human1-dist-split0-1000-50.predictor",            # MiniRocket_GradBoost_1000_50
          "StaticHumans_Pred": "regressionETERRY-StaticHumanDist_MiniRocket_GradBoost-eterry-statichumans-dist-split0-2000-150.predictor",       # MiniRocket_GradBoost_2000_150
          "PathCompletion_Pred": "regressionETERRY-PathCompletion_MiniRocket_GradBoost-eterry-pathcompletion-split0-500-20.predictor",      # MiniRocket_GradBoost_500_20.0
-         "decisonMetrics": "eterry-decisionTestMetrics.csv"
+         "decisionMetrics": "eterry-decisionTestMetrics.csv",
+         "result_filename" : "eterry-choice3-decisions.csv"
     }
 ]
 
