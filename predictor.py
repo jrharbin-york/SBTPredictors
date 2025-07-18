@@ -584,7 +584,7 @@ def test_regression(name_base, id_code, result_desc, alg_name, alg_func, fig_fil
         log.debug(f"Fold {i}:")
         fig_filename = fig_filename_func(id_code, i)
 
-        memory_tracker = MEMORY_TRACKING_CLASS()
+        #memory_tracker = MEMORY_TRACKING_CLASS()
         memory_tracker_lambda = expt_config["memory_tracking_creator"]
         memory_tracker = memory_tracker_lambda()
         memory_tracker.start_tracking()
