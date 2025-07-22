@@ -1,6 +1,7 @@
 import gc
 import os
 import tracemalloc
+from abc import ABCMeta, abstractmethod
 
 import psutil
 import structlog
@@ -8,8 +9,24 @@ from filprofiler.api import profile
 
 log = structlog.get_logger()
 
-class MemoryTracker:
-    pass
+class MemoryTracker(metaclass=ABCMeta):
+    @abstractmethod
+    def start_tracking(self):
+        pass
+
+    @abstractmethod
+    def end_tracking(self):
+        pass
+
+    def with_tracking(self, function_to_track):
+        return function_to_track()
+
+class NullMemoryTracker(MemoryTracker):
+    def start_tracking(self):
+        pass
+
+    def end_tracking(self):
+        return 0
 
 class TraceMallocMemoryTracker(MemoryTracker):
     def __init__(self):
@@ -29,6 +46,7 @@ class PSUtilMemoryTracker(MemoryTracker):
     def __init__(self):
         self.with_gc_disabled = False
         self.process = psutil.Process(os.getpid())
+
 
     def clear_gc(self):
         log.info("Running GC to clear memory")

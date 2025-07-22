@@ -6,6 +6,8 @@ run_mycobot = True
 run_turtlebot = False
 
 if __name__ == '__main__':
+    run_all_algs.run_all_algs_on_dataset(datasets.expt_config_eterry_human1_15files, run_intervals=True)
+
     if run_mycobot:
         run_all_algs.run_all_algs_on_dataset(datasets.expt_config_mycobot_fourjoints_3000, using_inceptiontime = False)
 

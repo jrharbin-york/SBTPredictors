@@ -75,6 +75,8 @@ from filprofiler.api import profile
 from sktime.pipeline import make_pipeline
 from tabulate import tabulate
 
+from memory_tracking import NullMemoryTracker
+
 log = structlog.get_logger()
 
 k_fold_shuffle = True
@@ -584,8 +586,11 @@ def test_regression(name_base, id_code, result_desc, alg_name, alg_func, fig_fil
         log.debug(f"Fold {i}:")
         fig_filename = fig_filename_func(id_code, i)
 
-        #memory_tracker = MEMORY_TRACKING_CLASS()
-        memory_tracker_lambda = expt_config["memory_tracking_creator"]
+        if "memory_tracking_creator" in expt_config:
+            memory_tracker_lambda = expt_config["memory_tracking_creator"]
+        else:
+            memory_tracker_lambda = lambda: NullMemoryTracker()
+
         memory_tracker = memory_tracker_lambda()
         memory_tracker.start_tracking()
         time_start = timer()
@@ -939,7 +944,7 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
     params["base_dir"] = expt_config["data_dir_base"]
     params["target_metric_name"] = expt_config["target_metric_name"]
     params["needed_columns"] = expt_config["needed_columns"]    
-    mfile = expt_config["data_dir_base"] + "/metrics.csv"
+    mfile = expt_config["data_dir_base"] + "/allMetrics.csv"
     data_files, metrics = data_loader.read_data(expt_config["data_dir_base"], mfile)
     target_metric_name = expt_config["target_metric_name"]
 
@@ -977,6 +982,7 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
         test_data = data_loader.create_combined_data(base_dir, data_files_test, needed_columns)
         metrics_train = np.array(metrics_train_pandas[target_metric_name])
         metrics_test =  np.array(metrics_test_pandas[target_metric_name])
+        # metrics_train needs to be a 2D array - number of columns same an number of metrics
         log.debug("Check data format train_metrics: %s",check_raise(metrics_test, mtype="np.ndarray"))
         log.debug("Check data format test_metrics: %s",check_raise(metrics_train, mtype="np.ndarray"))
 
@@ -1005,13 +1011,14 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
         is_inside_interval = np.logical_and((actual_val >= conf_intervals_lower), (actual_val <= conf_intervals_upper))
         mae_intervals = calc_mae_from_intervals_all(conf_intervals_lower, conf_intervals_upper, actual_val, is_inside_interval)
 
+        # when doing multi-predictions need to create hash of predictions per metric
         predicted_vs_actual = pd.DataFrame({'predicted_val_lower':conf_intervals_lower,
-                                            'predicted_val_median':normal_mean,
-                                            'predicted_val_upper':conf_intervals_upper,
-                                            'actual_val':actual_val,
-                                            'interval_width':interval_width,                                       
-                                            'is_inside_interval':is_inside_interval,
-                                            'mae_intervals':mae_intervals},
+                                                 'predicted_val_median':normal_mean,
+                                                 'predicted_val_upper':conf_intervals_upper,
+                                                 'actual_val':actual_val,
+                                                 'interval_width':interval_width,
+                                                 'is_inside_interval':is_inside_interval,
+                                                 'mae_intervals':mae_intervals},
                                            columns = ['predicted_val_lower',
                                                       'predicted_val_median',
                                                       'predicted_val_upper',
@@ -1020,54 +1027,24 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
                                                       'is_inside_interval',
                                                       'mae_intervals'
                                                       ])
-
+        log.debug("Plotting regression intervals plot to %s", fig_filename)
         plot_regression_intervals_new(expt_config["regression_graph_title"], predicted_vs_actual, expt_config, fig_filename)
 
-#        normal_dist_params = y_dist[0].params
-#        conf_int = stats.norm.interval(0.95, loc=normal_dist_params["loc"], scale=normal_dist_params["scale"])
-#        conf_int_lower = conf_int[0]
-#        conf_int_upper = conf_int[1]
-#        print("first y_dist = " + str(normal_dist_params) + ",lower=" + str(conf_int_lower) + ",upper=" + str(conf_int_upper))
-#        normal_mean = y_dist[0].mean
-#        normal_stddev = y_dist[0].std
-
-
-
-
-
-        
-        # how to get the interval from y_dist here?
-        # https://www.reddit.com/r/MachineLearning/comments/il90ic/research_using_models_for_ngboost/
-
-#       pipeline, r2_score_from_reg, predicted_vs_actual = run_regression_or_classifier(True, alg_func_delayed, alg_name, params)
-        
         time_end = timer()
         time_diff = time_end - time_start
 
         mse_c = MeanSquaredError()
         rmse_c = MeanSquaredError(square_root=True)
 
-        r2se = r2_score(predicted_vs_actual["actual_val"], predicted_vs_actual["predicted_val"], multioutput='uniform_average')
-
-        mse = mse_c(predicted_vs_actual["actual_val"], predicted_vs_actual["predicted_val"])
-        rmse = rmse_c(predicted_vs_actual["actual_val"], predicted_vs_actual["predicted_val"])
-
-        log.debug("r2_score from regression run = %f, r2_score locally computed = %f", r2_score_from_reg, r2se)
-
-        # Fix: needed to set multioutput='uniform_average'
-        if abs(r2se - r2_score_from_reg) > 1e-6:
-            log.error("Discrepancy between r2_score computed in pipeline and r2_score computed from sklearn")
-            sys.exit(-1)
-
-        r2_score_all_splits = np.append(r2_score_all_splits, r2se)
-        mse_all_splits = np.append(mse_all_splits, mse)
-        rmse_all_splits = np.append(rmse_all_splits, rmse)
-         
-        results_this_test = {"id":id_code, "k_split":i, "param1":alg_param1, "param2":alg_param2, "r2_score":r2_score_from_reg, "filename_graph":fig_filename, "time_diff":time_diff, "mse":mse, "rmse":rmse }
+        results_this_test = {"id":id_code,
+                             "k_split":i,
+                             "param1":alg_param1,
+                             "param2":alg_param2,
+                             #interval_width, mae etc
+                             "filename_graph":fig_filename,
+                             "time_diff":time_diff }
         pd_res.loc[len(pd_res)] = results_this_test
         # change filename
-        log.debug("Plotting regression plot to %s", fig_filename)
-        plot_regression(predicted_vs_actual, expt_config, fig_filename)
 
     mean_r2 = np.mean(r2_score_all_splits)
     mean_mse = np.mean(mse_all_splits)
@@ -1086,26 +1063,23 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
 
     return pd_res, summary_res
 
-def run_test_ngboost_intervals(alg_name, expt_config):
+def run_test_ngboost_intervals(name_base, alg_name, expt_config):
     individual_results = pd.DataFrame(columns=["id", "param1", "param2", "k_split", "filename_graph", "time_diff", "in_interval_proportion", "interval_width_mean", "interval_width_stddev", "mae"])
     stats_results = pd.DataFrame(columns=["param1", "param2", "r2_score_mean", "mse_mean", "rmse_mean", "r2_score_stddev", "mse_score_stddev", "rmse_score_stddev"])
-    name_base = "regression"
     id_code = 0
 
     # n_estimators
     n_estimators = 300
       # window_size
-    windowsize = 20.0
+    windowsize = 0.5
 
-    # min_samples_split
-    param1 = 3
-    # min_leaf_split
+    param1 = n_estimators
+    param2 = windowsize
 
     fig_filename_func = lambda id_num, k_split: name_base + "-" + alg_name + "-ID" + str(id_num) + "-" + str(param1) + "-" + str(param2) + "-" + "k_split" + str(k_split) +".png"
-    
-    alg_func = lambda min_samples_split, min_samples_leaf, params: create_tsfresh_windowed_regression(params, n_estimators, windowsize, 10.0, max_depth=4, learning_rate=0.1,
-                                                                                                            loss = "quantile", alpha = 0.05, min_samples_split=3, min_samples_leaf=min_samples_leaf)
-    
+
+    alg_func = lambda min_samples_split, min_samples_leaf, params: create_tsfresh_windowed_featuresonly(params, n_estimators, windowsize, 10.0)
+
     individual_results, stats_results = test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_func, individual_results, expt_config, stats_results, alg_param1=param1, alg_param2=param2)
     
     results_file = name_base + "-" + alg_name + "-res.csv"

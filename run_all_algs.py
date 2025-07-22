@@ -8,6 +8,7 @@ from memory_tracking import FilProfilerMemoryTracker
 
 ################################################################################
 combined_results_all_tests = None
+interval_results = None
 
 ################################################################################
 ## Fixed window size variants - for Mycobot
@@ -109,27 +110,9 @@ def run_tsfreshwin_gradboost_intervals(name_base, results_tag, expt_config):
 
 def run_tsfreshwin_ngboost_intervals(name_base, results_tag, expt_config):
     alg_name = "TSFreshWin_NGBoost"
+    global interval_results
     combined_name = results_tag + alg_name
-    combined_results_all_algs = predictor.run_test_ngboost_intervals(name_base, expt_config,
-                                                             combined_name,
-                                                             True,
-                                                             # alg_func_lower
-                                                             lambda n_estimators, windowsize, params: predictor.create_tsfresh_windowed_regression_gbr(params, n_estimators, windowsize, data_samples_per_second, max_depth=4, learning_rate=0.1,
-                                                                                                                                                       loss = "quantile", alpha = 0.05, min_samples_split=settings.min_samples_split_default, min_samples_leaf=settings.min_samples_leaf_default),
-                                                             # alg_func_median
-                                                             lambda n_estimators, windowsize, params: predictor.create_tsfresh_windowed_regression_gbr(params, n_estimators, windowsize, data_samples_per_second, max_depth=4, learning_rate=0.1,
-                                                                                                                                                       loss = "quantile", alpha = 0.5, min_samples_split=settings.min_samples_split_default, min_samples_leaf=settings.min_samples_leaf_default),
-                                                             # alg_func_upper
-                                                             lambda n_estimators, windowsize, params: predictor.create_tsfresh_windowed_regression_gbr(params, n_estimators, windowsize, data_samples_per_second, max_depth=4, learning_rate=0.1,
-                                                                                                                                                       loss = "quantile", alpha = 0.95, min_samples_split=settings.min_samples_split_default, min_samples_leaf=settings.min_samples_leaf_default),
-                                                             
-#                                                             lambda n_estimators, window_size, params:
-#                                                             predictor.create_tsfresh_windowed_regression_gbr(params, n_estimators, window_size, data_samples_per_second, max_depth=4, learning_rate=0.1, min_samples_split=settings.min_samples_split_default, min_samples_leaf=settings.min_samples_leaf_default),
-#                                                             
-                                                             alg_params1=settings.n_estimator_choices,
-                                                             alg_params2=settings.window_size_choices_secs,
-                                                             param1_name = "n_estimators",
-                                                             param2_name = "window_size")
+    interval_results = predictor.run_test_ngboost_intervals(name_base, alg_name, expt_config)
     
 def run_tsfreshwin_ridge(name_base, results_tag, expt_config, alg_params1=settings.max_alphas, alg_params2=settings.window_size_choices_secs):
     global combined_results_all_algs
@@ -216,8 +199,8 @@ def run_minirocket_gradboost(name_base, results_tag, expt_config, alg_params1=se
 #    alg_name = "TSFreshWin_NGBoost_Intervals"
 #    combined_name = results_tag + "_" + alg_name
 #    combined_results_all_algs = predictor.run_test_ngboost_intervals(alg_name, expt_config)
-    
-def run_all_algs_on_dataset(expt_config, using_inceptiontime = True):
+
+def run_all_algs_on_dataset(expt_config, using_inceptiontime = True, run_intervals=False):
     global combined_results_all_algs
 
     combined_results_all_algs = None
@@ -225,14 +208,16 @@ def run_all_algs_on_dataset(expt_config, using_inceptiontime = True):
 
     name_base = data_loader.create_directory_for_results(expt_config["dataset_name"]) + "/"
 
-    run_intervals = True
-
-    if expt_config["use_fixed_windows"]:
-        run_tsfreshwin_gradboost_fixed_window_size(name_base, dataset_name, expt_config)
-        run_tsfreshwin_ridge_fixed_window_size(name_base, dataset_name, expt_config)
+    if run_intervals:
+        results_tag = "intervals"
+        run_tsfreshwin_ngboost_intervals(name_base, results_tag, expt_config)
     else:
-        run_tsfreshwin_gradboost(name_base, dataset_name, expt_config)
-        run_tsfreshwin_ridge(name_base, dataset_name, expt_config)
+        if expt_config["use_fixed_windows"]:
+            run_tsfreshwin_gradboost_fixed_window_size(name_base, dataset_name, expt_config)
+            run_tsfreshwin_ridge_fixed_window_size(name_base, dataset_name, expt_config)
+        else:
+            run_tsfreshwin_gradboost(name_base, dataset_name, expt_config)
+            run_tsfreshwin_ridge(name_base, dataset_name, expt_config)
         
     run_minirocket_gradboost(name_base, dataset_name, expt_config)
     run_minirocket_ridge(name_base, dataset_name, expt_config)
