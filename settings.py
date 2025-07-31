@@ -4,7 +4,13 @@ learning_rates=[0.1,0.05,0.03, 0.2, 0.3]
 
 rocket_kernel_choices = [100,500,1000,2000]
 
-full_choices = True
+full_choices = False
+
+n_estimator_choices = [1000]
+window_size_choices_secs= [0.5]
+min_samples_split = [2]
+max_alphas = [10]
+alpha_step_values=[1.0]
 
 if full_choices:
     n_estimator_choices = [300, 150, 50, 20]
