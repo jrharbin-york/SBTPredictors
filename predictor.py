@@ -470,13 +470,13 @@ def plot_regression_intervals_new(regression_graph_title, predicted_vs_actual_un
     plt.xlabel("Test indices sorted by actual value")
     plt.ylabel("Intervals vs actual value of sensitive point")
 
-    plot_x_lower = expt_config["plot_x_lower"]
-    plot_x_upper = expt_config["plot_x_upper"]
+    #plot_x_lower = expt_config["plot_x_lower"]
+    #plot_x_upper = expt_config["plot_x_upper"]
     plot_y_lower = expt_config["plot_y_lower"]
     plot_y_upper = expt_config["plot_y_upper"]
     
 #    plt.xlim([plot_x_lower, plot_x_upper])
-#    plt.ylim([plot_y_lower, plot_y_upper])
+    plt.ylim([plot_y_lower, plot_y_upper])
     plt.title(regression_graph_title)
     plt.savefig(filename)
 
@@ -1363,7 +1363,7 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
 
         actual_val = metrics_test
         
-        interval_width = conf_intervals_lower - conf_intervals_upper
+        interval_width = conf_intervals_upper - conf_intervals_lower
         is_inside_interval = np.logical_and((actual_val >= conf_intervals_lower), (actual_val <= conf_intervals_upper))
         mae_intervals = calc_mae_from_intervals_all(conf_intervals_lower, conf_intervals_upper, actual_val, is_inside_interval)
 
@@ -1436,15 +1436,15 @@ def run_test_ngboost_intervals(name_base, expt_config, combined_results_all_test
     stats_results = pd.DataFrame(columns=["param1", "param2", "r2_score_mean", "mse_mean", "rmse_mean", "r2_score_stddev", "mse_score_stddev", "rmse_score_stddev"])
     id_code = 0
 
-    results_file = name_base + "-" + alg_name + "-interval-res.csv"
-    summary_file = name_base + "-" + alg_name + "-interval-summary-stats.csv"
+    results_file = name_base + "-" + alg_name + "interval-res.csv"
+    summary_file = name_base + "-" + alg_name + "interval-summary-stats.csv"
 
     id_num = 0
     for param1 in alg_params1:
         for param2 in alg_params2:
             n_estimators = param1
             window_size = param2
-            fig_filename_func = lambda id_n, k_split: name_base + "-intervals-" + alg_name + "-ID" + str(id_n) + "-" + str(param1) + "-" + str(param2) + "-" + "k_split" + str(k_split) +".png"
+            fig_filename_func = lambda id_n, k_split: name_base + "intervals-" + alg_name + "-ID" + str(id_n) + "-" + str(param1) + "-" + str(param2) + "-" + "k_split" + str(k_split) +".png"
             id_num+=1
             id_code = "ID" + str(id_num) + param1_name + str(param1) + "_" + param2_name + str(param2)
             alg_func = lambda min_samples_split, min_samples_leaf, params: create_tsfresh_windowed_featuresonly(params, n_estimators, windowsize, 10.0)
@@ -1471,7 +1471,7 @@ def run_test_quantile_dl(name_base, expt_config, combined_results_all_tests, alg
         for param2 in alg_params2:
             n_estimators = param1
             window_size = param2
-            fig_filename_func = lambda id_n, k_split: name_base + "-qrnn-intervals-" + alg_name + "-ID" + str(id_n) + "-" + str(param1) + "-" + str(param2) + "-" + "k_split" + str(k_split) +".png"
+            fig_filename_func = lambda id_n, k_split: name_base + "qrnn-intervals-" + alg_name + "-ID" + str(id_n) + "-" + str(param1) + "-" + str(param2) + "-" + "k_split" + str(k_split) +".png"
             id_num+=1
             id_code = "ID" + str(id_num) + param1_name + str(param1) + "_" + param2_name + str(param2)
             alg_func = lambda min_samples_split, min_samples_leaf, params: create_tsfresh_windowed_featuresonly(params, n_estimators, window_size, 10.0)

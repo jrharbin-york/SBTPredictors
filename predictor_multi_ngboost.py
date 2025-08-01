@@ -88,13 +88,12 @@ def plot_regression_intervals_new(regression_graph_title, predicted_vs_actual_un
     plt.xlabel("Test indices sorted by actual value")
     plt.ylabel("Intervals vs actual value of sensitive point")
 
-    plot_x_lower = expt_config["plot_x_lower"]
-    plot_x_upper = expt_config["plot_x_upper"]
+    # ignore resetting x values
     plot_y_lower = expt_config["plot_y_lower"]
     plot_y_upper = expt_config["plot_y_upper"]
     
-#    plt.xlim([plot_x_lower, plot_x_upper])
-#    plt.ylim([plot_y_lower, plot_y_upper])
+    #plt.xlim([plot_x_lower, plot_x_upper])
+    plt.ylim([plot_y_lower, plot_y_upper])
     plt.title(regression_graph_title)
     plt.savefig(filename)
 
@@ -161,7 +160,6 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
         test_data = data_loader.create_combined_data(base_dir, data_files_test, needed_columns)
 
         target_metric_names = ["distanceToHuman1", "distanceToStaticHumans", "pathCompletion"]
-        #target_metric_names = ["distanceToHuman1", "pathCompletion"]
         num_metrics = len(target_metric_names)
 
         metrics_train = np.array(metrics_train_pandas[target_metric_names])
@@ -198,16 +196,14 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
             metric_name = target_metric_names[j]
             actual_val = metrics_test[:,j]
 
-            interval_width = conf_intervals_lower[:,j] - conf_intervals_upper[:,j]
+            interval_width = conf_intervals_upper[:,j] - conf_intervals_lower[:,j]
             is_inside_interval = np.logical_and((actual_val >= conf_intervals_lower[:,j]), (actual_val <= conf_intervals_upper[:,j]))
-            mae_intervals = calc_mae_from_intervals_all(conf_intervals_lower[:,j], conf_intervals_upper[:,j], actual_val, is_inside_interval)
             mae_intervals = calc_mae_from_intervals_all(conf_intervals_lower[:,j], conf_intervals_upper[:,j], actual_val, is_inside_interval)
 
             interval_width_mean = np.mean(interval_width)
             interval_width_stddev = np.std(interval_width)
-            inside_interval_proportion = is_inside_interval.sum()
+            inside_interval_proportion = is_inside_interval.sum() / len(is_inside_interval)
             mae_intervals_mean = np.mean(mae_intervals)
-            mae_intervals_stddev = np.std(mae_intervals)
 
             fig_filename = fig_filename_func(id_code, i, metric_name)
 
@@ -217,16 +213,15 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
                                                      'predicted_val_upper':conf_intervals_upper[:,j],
                                                      'actual_val':actual_val,
                                                      'interval_width':interval_width,
-                                                     'is_inside_interval':is_inside_interval,
-                                                     'mae_intervals':mae_intervals},
+                                                     'inside_interval_proportion':inside_interval_proportion,
+                                                     'mae_intervals':mae_intervals_mean},
                                                columns = ['predicted_val_lower',
                                                           'predicted_val_median',
                                                           'predicted_val_upper',
                                                           'actual_val',
                                                           'interval_width',
                                                           'is_inside_interval',
-                                                        'mae_intervals'
-                                                         ])
+                                                        'mae_intervals' ])
             log.debug("Plotting regression intervals plot to %s", fig_filename)
             plot_regression_intervals_new(expt_config["regression_graph_title"], predicted_vs_actual, expt_config, fig_filename)
 
@@ -242,9 +237,8 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
                                  "param2":alg_param2,
                                  "interval_width_mean" : interval_width_mean,
                                  "interval_width_stddev" : interval_width_stddev,
-                                 "inside_interval_proportion" : inside_interval_proportion,
-                                 "mae_intervals_mean" : mae_intervals_mean,
-                                 "mae_intervals_stddev" : mae_intervals_stddev,
+                                 "in_interval_proportion" : inside_interval_proportion,
+                                 "mae" : mae_intervals_mean,
                                  "filename_graph":fig_filename,
                                  "time_diff":time_diff
                                  }
@@ -273,8 +267,8 @@ def run_test_ngboost_intervals_multi(name_base, expt_config, combined_results_al
     stats_results = pd.DataFrame(columns=["param1", "param2", "r2_score_mean", "mse_mean", "rmse_mean", "r2_score_stddev", "mse_score_stddev", "rmse_score_stddev"])
     id_code = 0
 
-    results_file = name_base + "-" + alg_name + "-interval-res.csv"
-    summary_file = name_base + "-" + alg_name + "-interval-summary-stats.csv"
+    results_file = name_base + alg_name + "-interval-res.csv"
+    summary_file = name_base + alg_name + "-interval-summary-stats.csv"
 
     id_num = 0
     for param1 in alg_params1:

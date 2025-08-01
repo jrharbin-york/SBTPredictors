@@ -236,7 +236,7 @@ def run_all_algs_on_dataset(expt_config, using_inceptiontime = True, run_interva
 
     if run_intervals:
         results_tag = "intervals"
-        run_tsfreshwin_ngboost_intervals_single(name_base, results_tag, expt_config)
+        #run_tsfreshwin_ngboost_intervals_single(name_base, results_tag, expt_config)
         run_tsfreshwin_ngboost_intervals_multi(name_base, results_tag, expt_config)
         run_quantile_dl(name_base, results_tag, expt_config)
         #run_tsfreshwin_ngboost_intervals(name_base, results_tag, expt_config)
