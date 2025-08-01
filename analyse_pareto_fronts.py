@@ -206,9 +206,9 @@ class DecisionNodeAnalysis:
 
 def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path, pred_metric_files):
     # Load predictors from files - separate predictor for all 3 metrics
-    human1_predfile = pred_base_path + "/" + pred_metric_files["Human1_Pred"] # "./temp-saved-predictors/eterry-15files/human1.predictor"
-    statichumans_predfile = pred_base_path + "/" + pred_metric_files["StaticHumans_Pred"] # ./temp-saved-predictors/eterry-15files/statichumans.predictor"
-    path_predfile = pred_base_path + "/" + pred_metric_files["PathCompletion_Pred"] #path_predfile = "./temp-saved-predictors/eterry-15files/pathcompletion.predictor"
+    human1_predfile = pred_base_path + "/" + pred_metric_files["Human1_Pred"]
+    statichumans_predfile = pred_base_path + "/" + pred_metric_files["StaticHumans_Pred"]
+    path_predfile = pred_base_path + "/" + pred_metric_files["PathCompletion_Pred"]
 
     predictors_for_cols = { "distanceToHuman1" : data_loader.load_predictor_from_file(human1_predfile),
                             "distanceToStaticHumans" : data_loader.load_predictor_from_file(statichumans_predfile),
@@ -296,6 +296,7 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path
     print(tabulate(results_df, headers="keys"))
 
 pred_eterry_base_path = "./for-aggregation-results/chosen-predictors/predictors/eterry"
+pred_multiturtlebot_base_path = "./for-aggregation-results/chosen-predictors/predictors/multi-turtlebot"
 
 eterry_file_options = [
     # top choices for approaches
@@ -323,9 +324,27 @@ eterry_file_options = [
     }
 ]
 
+# TB1
+#    1 & 500 & 150.000 & MiniRocket\_GradBoost & 0.773 & 0.024 & 0.239 & 0.026 & 0.489 & 0.027 \\
+# TB2
+#     1 & 2000 & 300.000 & MiniRocket\_GradBoost & 0.813 & 0.015 & 0.298 & 0.026 & 0.546 & 0.024 \\
+
+multiturtlebot_file_options = [
+    {
+        "TB1_Pred": "regressionMultiturtlebot-TB1_MiniRocket_GradBoost-turtlebot-tb1-dist-split0-500-150.predictor",
+        "TB2_Pred": "regressionMultiturtlebot-TB2_MiniRocket_GradBoost-turtlebot-tb2-dist-split0-2000-300.predictor",
+        "decisionMetrics": "turtlebot-decisionTestMetrics.csv",
+        "result_filename": "multiturtlebot-choice1-decisions.csv"
+    },
+]
+
 def run_analysis_different_fronts():
-    for pred_files in eterry_file_options:
-        test_evaluate_predictor_decisions_for_experiment(datasets.expt_config_eterry_human1_15files, pred_eterry_base_path, pred_files)
+    #for pred_files in eterry_file_options:
+        #test_evaluate_predictor_decisions_for_experiment(datasets.expt_config_eterry_human1_15files, pred_eterry_base_path, pred_files)
+
+    for pred_files in multiturtlebot_file_options:
+        test_evaluate_predictor_decisions_for_experiment(datasets.expt_config_turtlebot_multi_tb1_server_allops, pred_multiturtlebot_base_path, pred_files)
+
 
 if __name__ == '__main__':
     run_analysis_different_fronts()
