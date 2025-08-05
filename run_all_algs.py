@@ -1,5 +1,6 @@
 import data_loader
 import predictor
+import predictor_multi_ngboost
 import settings
 from tabulate import tabulate
 import numpy as np
@@ -106,13 +107,45 @@ def run_tsfreshwin_gradboost_intervals(name_base, results_tag, expt_config):
                                                              alg_params2=settings.window_size_choices_secs,
                                                              param1_name = "n_estimators",
                                                              param2_name = "window_size")
-                                                    
 
-def run_tsfreshwin_ngboost_intervals(name_base, results_tag, expt_config):
+def run_tsfreshwin_ngboost_intervals_single(name_base, results_tag, expt_config):
+    alg_name = "TSFreshWin_NGBoostSingle"
+    global interval_results
+    combined_name = results_tag + alg_name
+    interval_results = predictor.run_test_ngboost_intervals(name_base,
+                                                            expt_config,
+                                                            interval_results,
+                                                            alg_name,
+                                                            alg_params1 = settings.n_estimator_choices,
+                                                            alg_params2 = settings.window_size_choices_secs,
+                                                            param1_name = "n_estimators",
+                                                            param2_name = "window_size")
+
+def run_tsfreshwin_ngboost_intervals_multi(name_base, results_tag, expt_config):
+    alg_name = "TSFreshWin_NGBoostMulti"
+    global interval_results
+    combined_name = results_tag + alg_name
+    interval_results = predictor_multi_ngboost.run_test_ngboost_intervals_multi(name_base,
+                                                            expt_config,
+                                                            interval_results,
+                                                            alg_name,
+                                                            alg_params1 = settings.n_estimator_choices,
+                                                            alg_params2 = settings.window_size_choices_secs,
+                                                            param1_name = "n_estimators",
+                                                            param2_name = "window_size")
+
+def run_quantile_dl(name_base, results_tag, expt_config):
     alg_name = "TSFreshWin_NGBoost"
     global interval_results
     combined_name = results_tag + alg_name
-    interval_results = predictor.run_test_ngboost_intervals(name_base, alg_name, expt_config)
+    interval_results = predictor.run_test_quantile_dl(name_base,
+                                                                expt_config,
+                                                                interval_results,
+                                                                alg_name,
+                                                                alg_params1=settings.n_estimator_choices,
+                                                                alg_params2=settings.window_size_choices_secs,
+                                                                param1_name="n_estimators",
+                                                                param2_name="window_size")
     
 def run_tsfreshwin_ridge(name_base, results_tag, expt_config, alg_params1=settings.max_alphas, alg_params2=settings.window_size_choices_secs):
     global combined_results_all_algs
@@ -193,14 +226,7 @@ def run_minirocket_gradboost(name_base, results_tag, expt_config, alg_params1=se
                                                     param1_name = "num_kernels",
                                                     param2_name = "n_estimators")
 
-#def run_tsfreshwin_ngboost_intervals(name_base, results_tag, expt_config):
-#    print("TSFreshWin NGBoost...")
-#    global combined_results_all_algs
-#    alg_name = "TSFreshWin_NGBoost_Intervals"
-#    combined_name = results_tag + "_" + alg_name
-#    combined_results_all_algs = predictor.run_test_ngboost_intervals(alg_name, expt_config)
-
-def run_all_algs_on_dataset(expt_config, using_inceptiontime = True, run_intervals=False):
+def run_all_algs_on_dataset(expt_config, using_inceptiontime = True, run_intervals=False, run_non_intervals=False):
     global combined_results_all_algs
 
     combined_results_all_algs = None
@@ -210,8 +236,12 @@ def run_all_algs_on_dataset(expt_config, using_inceptiontime = True, run_interva
 
     if run_intervals:
         results_tag = "intervals"
-        run_tsfreshwin_ngboost_intervals(name_base, results_tag, expt_config)
-    else:
+        #run_tsfreshwin_ngboost_intervals_single(name_base, results_tag, expt_config)
+        run_tsfreshwin_ngboost_intervals_multi(name_base, results_tag, expt_config)
+        run_quantile_dl(name_base, results_tag, expt_config)
+        #run_tsfreshwin_ngboost_intervals(name_base, results_tag, expt_config)
+
+    if run_non_intervals:
         if expt_config["use_fixed_windows"]:
             run_tsfreshwin_gradboost_fixed_window_size(name_base, dataset_name, expt_config)
             run_tsfreshwin_ridge_fixed_window_size(name_base, dataset_name, expt_config)

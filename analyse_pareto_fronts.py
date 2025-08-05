@@ -111,9 +111,20 @@ class DecisionNodeAnalysis:
             metric_results[col_name] = pipeline_gen_func.predict([test_definition])
         return metric_results
 
-    def predict_all_tests(self, test_ids, predictors):
+    def predict_all_tests_single(self, test_ids, predictors):
         metric_results = {}
         for col_name, pipeline_gen_func in predictors.items():
+            log.info(f"Running predictor for {col_name} on all tests")
+            # load the specific test definition here and make the prediction
+            test_definitions = data_loader.create_combined_data(self.base_files_dir, test_ids, self.needed_operations)
+            metric_results[col_name] = pipeline_gen_func.predict(test_definitions)
+        return metric_results
+
+    def predict_all_tests_multi(self, test_ids, predictor_multi):
+        metric_results = {}
+        predictor_multi = predictor_multi.predict()
+
+        for col_name, pipeline_gen_func in predictor.items():
             log.info(f"Running predictor for {col_name} on all tests")
             # load the specific test definition here and make the prediction
             test_definitions = data_loader.create_combined_data(self.base_files_dir, test_ids, self.needed_operations)
@@ -140,11 +151,14 @@ class DecisionNodeAnalysis:
             log.info("Metric", mmetric, " is missing")
             raise FrontCalculationFailed(mmetric)
 
-    def choose_tests_from_decision_node_predict_all_first(self, actual_test_metrics, predictors, decision_node):
+    def choose_tests_from_decision_node_predict_all_first(self, actual_test_metrics, decision_node, predictors=None, predictor_multi=None):
         tests_chosen_rows = []
         try:
             test_ids = actual_test_metrics["testID"]
-            predicted_metrics_all = self.predict_all_tests(test_ids, predictors)
+            if predictor_multi:
+                predicted_metrics_all = self.predict_all_tests_multi(test_ids, predictor_multi)
+            else:
+                predicted_metrics_all = self.predict_all_tests_single(test_ids, predictors)
 
             metric_row_id = 0
             for (test_index, test_metrics) in actual_test_metrics.iterrows():
