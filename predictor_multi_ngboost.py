@@ -1,4 +1,4 @@
-from sktime.datatypes import check_raise, convert_to
+ from sktime.datatypes import check_raise, convert_to
 
 from sktime.performance_metrics.forecasting import MeanSquaredError
 
@@ -214,14 +214,17 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
                                                      'actual_val':actual_val,
                                                      'interval_width':interval_width,
                                                      'inside_interval_proportion':inside_interval_proportion,
-                                                     'mae_intervals':mae_intervals_mean},
-                                               columns = ['predicted_val_lower',
+                                                     'mae_intervals':mae_intervals_mean,
+                                                     'metric_name':metric_name
+                                                },
+                                               columns = ['metric_name',
+                                                          'predicted_val_lower',
                                                           'predicted_val_median',
                                                           'predicted_val_upper',
                                                           'actual_val',
                                                           'interval_width',
                                                           'is_inside_interval',
-                                                        'mae_intervals' ])
+                                                          'mae_intervals' ])
             log.debug("Plotting regression intervals plot to %s", fig_filename)
             plot_regression_intervals_new(expt_config["regression_graph_title"], predicted_vs_actual, expt_config, fig_filename)
 
@@ -242,7 +245,9 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
                                  "filename_graph":fig_filename,
                                  "time_diff":time_diff
                                  }
-        pd_res.loc[len(pd_res)] = results_this_test
+            print(f"results_this_test={results_this_test}")
+            pd_res.loc[len(pd_res)] = results_this_test
+
         # change filename
 
     mean_r2 = np.mean(r2_score_all_splits)
