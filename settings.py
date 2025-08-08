@@ -6,7 +6,7 @@ rocket_kernel_choices = [100,500,1000,2000]
 
 full_choices = False
 
-n_estimator_choices = [1000]
+n_estimator_choices = [300]
 window_size_choices_secs= [0.5]
 min_samples_split = [2]
 max_alphas = [10]
