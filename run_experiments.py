@@ -7,7 +7,14 @@ run_turtlebot = False
 
 if __name__ == '__main__':
     # Run multiple algs
-    run_all_algs.run_all_algs_on_dataset(datasets.expt_config_eterry_human1_15files, run_intervals=True, run_non_intervals=False)
+    run_all_algs.run_all_algs_on_dataset(datasets.expt_config_eterry_human1_15files, run_intervals=True,
+                                         run_non_intervals=False)
+
+    # For running the single predictor
+    run_all_algs.run_all_algs_on_dataset(datasets.expt_config_eterry_pathcompletion_15files, run_intervals=True, run_non_intervals=False)
+
+
+
 
     if run_mycobot:
         run_all_algs.run_all_algs_on_dataset(datasets.expt_config_mycobot_fourjoints_3000_parammag, using_inceptiontime=False)

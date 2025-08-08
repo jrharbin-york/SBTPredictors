@@ -1,3 +1,5 @@
+from ngboost.distns.lognormal import LogNormalCRPScoreCensored
+from ngboost.scores import CRPScore, MLE
 from sktime.datatypes import check_raise, convert_to
 
 from sktime.performance_metrics.forecasting import MeanSquaredError
@@ -134,55 +136,54 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
     kf = KFold(n_splits=k, shuffle=k_fold_shuffle)
 
     #target_metric_names = ["distanceToHuman1", "distanceToStaticHumans", "pathCompletion"]
-    target_metric_names = ["pathCompletion", "distanceToStaticHumans", "distanceToHuman1"]
+    #target_metric_names = ["pathCompletion", "distanceToStaticHumans", "distanceToHuman1"]
+    target_metric_names = ["pathCompletion"]
     num_metrics = len(target_metric_names)
 
-    for j in range(0, num_metrics):
-        metric_name = target_metric_names[j]
+    n_estimators = alg_param1
+    window_size = alg_param2
+    confidence_intervals_param = 0.95
+    res_samples_per_second = 10
 
-        res_samples_per_second = 10
-        n_estimators = alg_param1
-        window_size = alg_param2
-
-        confidence_intervals_param = 0.95
-
-        # Accumulate these over all splits
-        interval_width_means = []
-        in_interval_proportions = []
-        mae_intervals = []
+    # Accumulate these over all splits
+    interval_width_means = {}
+    in_interval_proportions = {}
+    mae_intervals_splits = {}
         
-        for i, (train_index, test_index) in enumerate(kf.split(data_files)):
+    for i, (train_index, test_index) in enumerate(kf.split(data_files)):
+        # Split the data for k_fold validation
+        data_files_train = [data_files[i] for i in train_index]
+        metrics_train_pandas = metrics.iloc[train_index]
+        data_files_test = [data_files[i] for i in test_index]
+        metrics_test_pandas = metrics.iloc[test_index]
+        log.debug(f"All metrics, fold={i}:")
 
-            # Split the data for k_fold validation
-            data_files_train = [data_files[i] for i in train_index]
-            metrics_train_pandas = metrics.iloc[train_index]
-            data_files_test = [data_files[i] for i in test_index]
-            metrics_test_pandas = metrics.iloc[test_index]
-            log.debug(f"metric_name={metric_name}, fold {i}:")
+        train_data = data_loader.create_combined_data(base_dir, data_files_train, needed_columns)
+        test_data = data_loader.create_combined_data(base_dir, data_files_test, needed_columns)
+        metrics_train = np.array(metrics_train_pandas[target_metric_names])
+        metrics_test = np.array(metrics_test_pandas[target_metric_names])
 
-            train_data = data_loader.create_combined_data(base_dir, data_files_train, needed_columns)
-            test_data = data_loader.create_combined_data(base_dir, data_files_test, needed_columns)
+        time_start = timer()
+        # instead of single pipeline
+        # take the feature extractor and produce the features, convert them to 2D X array
+        # then create the 2D Y array of metrics per test
+        features_pipe = create_tsfresh_windowed_featuresonly(params, n_estimators, window_size, res_samples_per_second)
 
-            metrics_train = np.array(metrics_train_pandas[target_metric_names])
-            metrics_test = np.array(metrics_test_pandas[target_metric_names])
+        features_pipe.fit(train_data, metrics_train)
+        x_features_train = features_pipe.transform(train_data)
+        x_features_test = features_pipe.transform(test_data)
 
-            time_start = timer()
+        # this should be based on all metric lengths
+        dist = MultivariateNormal(num_metrics)
 
-            # instead of single pipeline
-            # take the feature extractor and produce the features, convert them to 2D X array
-            # then create the 2D Y array of metrics per test
-            features_pipe = create_tsfresh_windowed_featuresonly(params, n_estimators, window_size,
-                                                                 res_samples_per_second)
+        ngb = NGBRegressor(Dist=dist, verbose=True, Score=MLE, n_estimators=n_estimators, natural_gradient=True)
+        ngb.fit(x_features_train, metrics_train, early_stopping_rounds=1000)
+        y_dist_test = ngb.pred_dist(x_features_test, max_iter=ngb.best_val_loss_itr)
+        time_end = timer()
 
-            features_pipe.fit(train_data, metrics_train)
-            x_features_train = features_pipe.transform(train_data)
-            x_features_test = features_pipe.transform(test_data)
+        for j in range(0, num_metrics):
+            metric_name = target_metric_names[j]
 
-            # this should be based on all metric lengths
-            dist = MultivariateNormal(num_metrics)
-            ngb = NGBRegressor(Dist=dist, verbose=True, n_estimators=n_estimators, natural_gradient=True)
-            ngb.fit(x_features_train, metrics_train, early_stopping_rounds=1000)
-            y_dist_test = ngb.pred_dist(x_features_test, max_iter=ngb.best_val_loss_itr)
             conf_intervals_lower, conf_intervals_upper, normal_mean = confidence_intervals_from_ngboost(y_dist_test,
                                                                                                         num_metrics,
                                                                                                         confidence_intervals_param)
@@ -208,8 +209,6 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
             if metric_name=="pathCompletion":
                 # for debugging
                 print("pathCompletion")
-
-
 
             # when doing multi-predictions need to create hash of predictions per metric
             predicted_vs_actual = pd.DataFrame({'predicted_val_lower':conf_intervals_lower[:,j],
@@ -248,11 +247,7 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
 
             plot_regression_intervals_new(expt_config["regression_graph_title"], predicted_vs_actual, expt_config, fig_filename, plot_y_lower=plot_y_min, plot_y_upper=plot_y_max)
 
-            time_end = timer()
             time_diff = time_end - time_start
-
-            mse_c = MeanSquaredError()
-            rmse_c = MeanSquaredError(square_root=True)
 
             results_this_test = {"id":id_code,
                                  "k_split":i,
@@ -268,15 +263,24 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
             print(f"results_this_test={results_this_test}")
             pd_res.loc[len(pd_res)] = results_this_test
 
-            interval_width_means = np.append(interval_width_means, interval_width_mean)
-            in_interval_proportions = np.append(in_interval_proportions, inside_interval_proportion)
-            mae_intervals = np.append(mae_intervals, mae_intervals_mean)
+            if not (metric_name in interval_width_means):
+                interval_width_means[metric_name] = []
 
-        # change filename
+            if not (metric_name in in_interval_proportions):
+                in_interval_proportions[metric_name] = []
 
-        interval_width_mean_mean = np.mean(interval_width_means)
-        in_interval_proportion_mean = np.mean(in_interval_proportions)
-        mae_intervals_mean = np.mean(mae_intervals)
+            if not (metric_name in mae_intervals_splits):
+                mae_intervals_splits[metric_name] = []
+
+            interval_width_means[metric_name] = np.append(interval_width_means[metric_name], interval_width_mean)
+            in_interval_proportions[metric_name] = np.append(in_interval_proportions[metric_name], inside_interval_proportion)
+            mae_intervals_splits[metric_name] = np.append(mae_intervals_splits[metric_name], mae_intervals_mean)
+
+    for j in range(0, num_metrics):
+        metric_name = target_metric_names[j]
+        interval_width_mean_mean = np.mean(interval_width_means[metric_name])
+        in_interval_proportion_mean = np.mean(in_interval_proportions[metric_name])
+        mae_intervals_mean = np.mean(mae_intervals_splits[metric_name])
 
         summary_this_test = { "metric_name":metric_name, "param1":alg_param1, "param2":alg_param2,
                               "interval_width_mean_mean":interval_width_mean_mean,
