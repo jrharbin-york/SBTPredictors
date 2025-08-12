@@ -2,11 +2,11 @@ from decision_node import DecisionNode, MissingMetric, MissingThreshold
 
 class FixedThresholdBased(DecisionNode):
     """Uses a single fixed value for each metric for the decision threshold"""
-    def __init__(self, target_metric_ids, metrics_needed, thresholds, greater_than):
+    def __init__(self, target_metric_ids, metrics_needed, thresholds, metric_directions):
         super().__init__()
         self.target_metric_ids = target_metric_ids
         self.thresholds = thresholds
-        self.greater_than = greater_than
+        self.metric_directions = metric_directions
         self.metrics_needed = metrics_needed
 
     # Other decision nodes
@@ -25,10 +25,10 @@ class FixedThresholdBased(DecisionNode):
             if self.thresholds[m] is None:
                 raise MissingThreshold(m)
 
-            if self.greater_than:
+            if self.metric_directions[m] == "max":
                 if predicted_metrics[m] > self.thresholds[m]:
                     found_count += 1
-            else:
+            elif self.metric_directions[m] == "min":
                 if predicted_metrics[m] < self.thresholds[m]:
                     found_count += 1
         return found_count >= self.metrics_needed

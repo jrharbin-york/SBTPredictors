@@ -13,13 +13,14 @@ class SimulatedAnnealingThresholdMultiDimensional(SimulatedAnnealingThreshold):
     the probability based upon temperature"""
 
     # TODO: currently assumes minimisation only
-    def __init__(self, target_metrics_ids, distance_divisor_per_metric, initial_temperature = 100.0):
+    def __init__(self, target_metrics_ids, metric_columns_direction, distance_divisor_per_metric, initial_temperature = 100.0):
         super().__init__()
         self.target_metric_ids = target_metrics_ids
         self.initial_temperature = initial_temperature
         self.current_best_per_metric = {}
         self.tests_per_epoch_increment = 1.0
         self.distance_divisor_per_metric = distance_divisor_per_metric
+        self.metric_columns_direction = metric_columns_direction
         self.epoch = 0
 
     def description(self):
@@ -40,16 +41,19 @@ class SimulatedAnnealingThresholdMultiDimensional(SimulatedAnnealingThreshold):
             else:
                 # Sum the distance squared scaled by the divisor for that metric
                 diff_m = (prediction_for_m - self.current_best_per_metric[m]) / self.distance_divisor_per_metric[m]
+                # If the max is selected, flip the sign
+                if self.metric_columns_direction[m] == "max":
+                    diff_m *= -1
+
                 if diff_m < 0:
                     execute = True
                 diff_m_squared += diff_m ** 2.0
 
+        # This is OK for both max and min because it has been squared?
         diff_all_metrics = math.sqrt(diff_m_squared)
         t_now = self.initial_temperature / float(self.epoch + 1)
         metropolis = math.exp(-diff_all_metrics / t_now)
 
-        # TODO: diff_all_metrics < 0 will never be executed
-        #if diff_all_metrics < 0 or (random.uniform(0.0, 1.0) < metropolis):
         if random.uniform(0.0, 1.0) < metropolis:
             execute = True
 
@@ -59,11 +63,16 @@ class SimulatedAnnealingThresholdMultiDimensional(SimulatedAnnealingThreshold):
     def accept_test(self, test_id, actual_test_metrics):
         for m in self.target_metric_ids:
             if not (m in self.current_best_per_metric):
-                # TODO: rename current_best_prediction to current_best_value
                 self.current_best_per_metric[m] = actual_test_metrics[m]
             else:
-                # TODO: assumes minimisation is better
-                if actual_test_metrics[m] < self.current_best_per_metric[m]:
+
+                actual_adv = 0
+                if self.metric_columns_direction[m] == "min":
+                    actual_adv = self.current_best_per_metric[m] - actual_test_metrics[m]
+                elif self.metric_columns_direction[m] == "max":
+                    actual_adv = actual_test_metrics[m] - self.current_best_per_metric[m]
+
+                if actual_adv > 0:
                     self.current_best_per_metric[m] = actual_test_metrics[m]
 
 class SimulatedAnnealingThresholdSingleDimensional(SimulatedAnnealingThreshold):
@@ -71,26 +80,31 @@ class SimulatedAnnealingThresholdSingleDimensional(SimulatedAnnealingThreshold):
     computes the distances between predicted and best actual, using a function to reduce them to
     a single dimension. Then uses a probability based upon temperature"""
 
-    # TODO: currently assumes minimisation only
-    def __init__(self, target_metrics_ids, distance_divisor_per_metric, metric_weights, initial_temperature = 100.0):
+    def __init__(self, target_metrics_ids, metric_columns_direction, distance_divisor_per_metric, metric_weights, initial_temperature = 100.0):
         super().__init__()
         self.target_metric_ids = target_metrics_ids
         self.initial_temperature = initial_temperature
         self.current_best = None
         self.tests_per_epoch_increment = 1.0
         self.metric_weights = metric_weights
+        self.metric_columns_direction = metric_columns_direction
         self.distance_divisor_per_metric = distance_divisor_per_metric
         self.epoch = 0
 
     def description(self):
         return f"SimAnnealingSingle({self.initial_temperature})"
 
-    def reduction_function(self, metric_hash):
+    def reduction_function(self, metric_predictions):
         total = 0.0
         for metric_id in self.target_metric_ids:
             w = self.metric_weights[metric_id]
-            print(f"metric_hash={metric_hash}")
-            v = metric_hash[metric_id]
+
+            # invert the weight if it is for maximisation
+            if self.metric_columns_direction[metric_id] == "max":
+                w *= -1
+
+            print(f"metric_predictions={metric_predictions}")
+            v = metric_predictions[metric_id]
             divisor = self.distance_divisor_per_metric[metric_id]
             log.info(f"metric_id={metric_id}, w={w},v={v}, type(v)={type(v)} divisor={divisor}")
             total += w * (v / divisor)

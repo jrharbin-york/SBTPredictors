@@ -66,6 +66,14 @@ class DecisionNodeAnalysis:
     def max_point_from_all_fronts(self, front_list):
         max_points_2d = np.column_stack(list(map(lambda pf: self.max_point_from_front(pf), front_list)))
         max_of_all = np.amax(max_points_2d, axis=1)
+
+        i = 0
+        for col in self.metric_cols_chosen:
+            if self.metric_columns_direction[col] == "max":
+                # Check: if the metric is maximisation therefore flipped, the "max point" should always be zero...
+                max_of_all[i] = 0.0
+            i+=1
+
         return max_of_all
 
     def front_to_numpy_array(self,front):
@@ -124,7 +132,7 @@ class DecisionNodeAnalysis:
         metric_results = {}
         predictor_multi = predictor_multi.predict()
 
-        for col_name, pipeline_gen_func in predictor.items():
+        for col_name, pipeline_gen_func in predictor_multi.items():
             log.info(f"Running predictor for {col_name} on all tests")
             # load the specific test definition here and make the prediction
             test_definitions = data_loader.create_combined_data(self.base_files_dir, test_ids, self.needed_operations)
@@ -190,7 +198,7 @@ class DecisionNodeAnalysis:
 
         decision_node.register_front_all_tests(front_all_tests)
         if self.PREDICT_ALL_TEST_SIMULTANEOUSLY:
-            chosen_by_decision_node = self.choose_tests_from_decision_node_predict_all_first(self.metrics_test_df, predictors, decision_node)
+            chosen_by_decision_node = self.choose_tests_from_decision_node_predict_all_first(self.metrics_test_df, decision_node, predictors=predictors)
         else:
             chosen_by_decision_node = self.choose_tests_from_decision_node(self.metrics_test_df, predictors, decision_node)
         tests_chosen_count = len(chosen_by_decision_node)
@@ -225,8 +233,10 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path
 
     metric_names = metric_columns_direction.keys()
 
-    predictors_for_cols = { metric_name:data_loader.load_predictor_from_file(pred_base_path + "/" + pred_metric_files[metric_name + "_Pred"])
+    predictors_for_cols = { metric_name : data_loader.load_predictor_from_file(pred_base_path + "/" + pred_metric_files[metric_name + "_Pred"])
                             for metric_name in metric_names}
+
+    log.info(f"predictors_for_cols={predictors_for_cols}")
 
     decision_metrics_file = pred_base_path + "/" + pred_metric_files["decisionMetrics"]
     decision_data_files, decision_metrics = data_loader.read_data(expt_config["data_dir_base"], decision_metrics_file)
@@ -242,11 +252,23 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path
     random_decision_node_prob = 0.1
     random_decision_node = RandomDecisionNode(random_decision_node_prob)
 
-    fixed_threshold_decision_node_1 = FixedThresholdBased(target_metric_ids, 1, static_thresholds, False)
-    fixed_threshold_decision_node_2 = FixedThresholdBased(target_metric_ids, 2, static_thresholds, False)
-    fixed_threshold_decision_node_3 = FixedThresholdBased(target_metric_ids, 3, static_thresholds, False)
+    fixed_threshold_decision_node_1 = FixedThresholdBased(target_metric_ids, 1, static_thresholds, metric_columns_direction)
+    fixed_threshold_decision_node_2 = FixedThresholdBased(target_metric_ids, 2, static_thresholds, metric_columns_direction)
+    fixed_threshold_decision_node_3 = FixedThresholdBased(target_metric_ids, 3, static_thresholds, metric_columns_direction)
 
-    hypervolume_based = IndicatorBasedDecisions("hypervolume", analyser_slow, 1.0)
+    step_accept_factor_count = 12
+    min_accept_factor_value = 0.7
+    max_accept_factor_value = 1.00
+    #accept_worse_prob = 0.5
+
+    accept_factor_values = np.linspace(min_accept_factor_value, max_accept_factor_value, step_accept_factor_count)
+    hypervolume_based_1_0 = IndicatorBasedDecisions("hypervolume", analyser_slow, 1.0, improvement_relative_factor=1.0)
+    hypervolume_based_0_99 = IndicatorBasedDecisions("hypervolume", analyser_slow, 1.0, improvement_relative_factor=0.99)
+    hypervolume_based_0_95 = IndicatorBasedDecisions("hypervolume", analyser_slow, 1.0, improvement_relative_factor=0.95)
+
+    hypervolume_nodes_single_range = list(
+        map(lambda afactor: IndicatorBasedDecisions("hypervolume", analyser_slow, 1.0, improvement_relative_factor=afactor)
+                    , accept_factor_values))
 
     normal_decision_nodes = [
         null_decision_node,
@@ -257,14 +279,19 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path
     ]
 
     min_temperature = 10
-    max_temperature = 520
-    step_temperature = 20
-    temperature_ranges = range(min_temperature,max_temperature,step_temperature)
-    decision_nodes_single_range = list(map (lambda temp: SimulatedAnnealingThresholdSingleDimensional(target_metric_ids, distance_divisor_per_metric, metric_weights, initial_temperature=temp), temperature_ranges))
-    decision_nodes_multi_range = list(map (lambda temp: SimulatedAnnealingThresholdMultiDimensional(target_metric_ids, distance_divisor_per_metric, initial_temperature=temp), temperature_ranges))
+    max_temperature = 1500
+    step_temperature = 40
 
-    decision_nodes_fast = decision_nodes_single_range + decision_nodes_multi_range + normal_decision_nodes
-    decision_nodes_slow = [hypervolume_based]
+    temperature_ranges = range(min_temperature,max_temperature,step_temperature)
+    decision_nodes_single_range = list(map (lambda temp: SimulatedAnnealingThresholdSingleDimensional(target_metric_ids, metric_columns_direction, distance_divisor_per_metric, metric_weights, initial_temperature=temp), temperature_ranges))
+    decision_nodes_multi_range = list(map (lambda temp: SimulatedAnnealingThresholdMultiDimensional(target_metric_ids, metric_columns_direction, distance_divisor_per_metric, initial_temperature=temp), temperature_ranges))
+
+    #decision_nodes_fast = decision_nodes_single_range + decision_nodes_multi_range + normal_decision_nodes
+    decision_nodes_fast = []
+
+    #decision_nodes_slow = [hypervolume_based_1_0, hypervolume_based_0_99, hypervolume_based_0_95]
+    #decision_nodes_slow = [hypervolume_based_1_0, hypervolume_based_0_99, hypervolume_based_0_95] + hypervolume_nodes_single_range
+    decision_nodes_slow = hypervolume_nodes_single_range
 
     all_decision_node_results = {}
 

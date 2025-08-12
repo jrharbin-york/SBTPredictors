@@ -19,7 +19,7 @@ def get_model(input_dim, num_units, act, dp=0.1, gauss_std=0.3, num_hidden_layer
         x = Dense(num_units[i], use_bias=True, kernel_initializer='he_normal', bias_initializer='he_normal',
                 kernel_regularizer=regularizers.l2(0.001), activation=act[i])(x)
         x = Dropout(dp[i])(x)
-        x = GaussianNoise(gauss_std[i])(x)  #似乎不适用与小模型?
+        x = GaussianNoise(gauss_std[i])(x)
     
     x = Dense(num_quantiles, activation=None, use_bias=True, kernel_initializer='he_normal', bias_initializer='he_normal')(x)
 

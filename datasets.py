@@ -4,7 +4,7 @@
 from memory_tracking import FilProfilerMemoryTracker, TraceMallocMemoryTracker
 
 mycobot_fourjoints_3000 = "./input_csv_data/mycobot-fourjoints-3000"
-mycobot_fourjoints_3000_parammag = "./input_csv_data/mycobot-fourjoints-3000-parammag"
+
 
 mycobot_all_ops = ["distortJoint0", "distortJoint1", "distortJoint2", "distortJoint3"]
 
@@ -24,15 +24,35 @@ expt_config_mycobot_fourjoints_3000 = {
     "memory_tracker" : lambda filename: TraceMallocMemoryTracker()
 }
 
-expt_config_mycobot_fourjoints_3000_parammag = {
-    "dataset_name" : "Mycobot-Fourjoints",
-    "data_dir_base" : mycobot_fourjoints_3000_parammag,
-    "target_metric_name" : "paramMagnitudes",
+# New with 2D metrics
+mycobot_fourjoints_objectposition = "./input_csv_data/mycobot-fourjoints-bothmetrics-objectposition"
+mycobot_fourjoints_parammag = "./input_csv_data/mycobot-fourjoints-bothmetrics-parammag"
+
+expt_config_mycobot_fourjoints_bothmetrics_objectposition = {
+    "dataset_name" : "Mycobot-Fourjoints-ObjectPosition",
+    "data_dir_base" : mycobot_fourjoints_objectposition,
+    "target_metric_name" : "objectFinalPositionError",
     "needed_columns" : mycobot_all_ops,
     "plot_x_lower" : 0.0,
     "plot_x_upper" : 1.5,
     "plot_y_lower" : 0.0,
     "plot_y_upper" : 1.5,
+    "regression_graph_title" : "Predicted vs actual param magnitude for the Mycobot case",
+    "range_graph_title" : "r2 score for Mycobot case - across different hyperparameters",
+    "predictor_save_filename" : "mycobot-param-mag",
+    "use_fixed_windows" : True,
+    "memory_tracker" : lambda filename: TraceMallocMemoryTracker()
+}
+
+expt_config_mycobot_fourjoints_bothmetrics_parammag = {
+    "dataset_name" : "Mycobot-Fourjoints-ParamMag",
+    "data_dir_base" : mycobot_fourjoints_parammag,
+    "target_metric_name" : "paramMagnitudes",
+    "needed_columns" : mycobot_all_ops,
+    "plot_x_lower" : 0.0,
+    "plot_x_upper" : 6.0,
+    "plot_y_lower" : 0.0,
+    "plot_y_upper" : 6.0,
     "regression_graph_title" : "Predicted vs actual param magnitude for the Mycobot case",
     "range_graph_title" : "r2 score for Mycobot case - across different hyperparameters",
     "predictor_save_filename" : "mycobot-param-mag",

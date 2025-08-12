@@ -1,25 +1,29 @@
 # Indicator-based decision node
+import random
+
 import pandas as pd
 from decision_node import DecisionNode, log
 
 class IndicatorBasedDecisions(DecisionNode):
-    def __init__(self, indicator_id, decision_analysis, min_tests_to_accept_first, improvement_relative_factor = 1.0, ):
+    def __init__(self, indicator_id, decision_analysis, min_tests_to_accept_first, improvement_relative_factor = 1.0):
         super().__init__()
         # TODO: need to supply the sign and flip if the indicator should be maximised
         self.current_best_front = None
         self.indicator_id = indicator_id
         self.best_indicator_value = None
         self.decision_analysis = decision_analysis
+        # TODO: could maybe use improvement relative factor like simulated annealing
         self.improvement_relative_factor = improvement_relative_factor
+
+        # prob of acceptance is linear shift from 0 (at improvement_rel_Factor e.g. 0.8) to 1 at 1.0 or higher
+
         self.accepted_tests = []
         self.min_tests_to_accept_first = min_tests_to_accept_first
 
     def description(self):
-        return f"IndicatorBased({self.indicator_id})"
+        return f"IndicatorBased({self.indicator_id}, {self.improvement_relative_factor})"
 
     def execute_or_not(self, test_id, predicted_test_metrics):
-        # TODO: min_tests should be supplied as parameter
-
         if (self.best_indicator_value is None) or (len(self.accepted_tests) < self.min_tests_to_accept_first):
             # Always accept the first test
             return True
@@ -33,8 +37,20 @@ class IndicatorBasedDecisions(DecisionNode):
             predicted_quality_for_indicator = predicted_quality_indicators_with_new_test[self.indicator_id]
             log.debug(f"point on hypothetical front={len(hypothetical_front)},predicted_quality_for_indicator={predicted_quality_for_indicator}")
             # improvement_relative_factor of 1.0 will accept any increase
-            include = (predicted_quality_for_indicator > (self.best_indicator_value * self.improvement_relative_factor))
-            return include
+            
+            if predicted_quality_for_indicator > self.best_indicator_value:
+                # always accept a better value
+                return True
+            else:
+                relative_quality = predicted_quality_for_indicator / self.best_indicator_value
+                # compute a probability that goes to zero for self.improvement_relative_factor
+                prob_for_quality = relative_quality - self.improvement_relative_factor / (1 - self.improvement_relative_factor)
+                log.debug(f"relative_quality={relative_quality},prob_for_quality={prob_for_quality}")
+                if predicted_quality_for_indicator > (self.best_indicator_value * self.improvement_relative_factor):
+                    # if the prediction is worse, accept with a given probability
+                    return random.uniform(0.0, 1.0) < prob_for_quality
+                else:
+                    return False
 
     def accept_test(self, test_id, actual_test_metrics):
         self.accepted_tests.append(actual_test_metrics)

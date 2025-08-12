@@ -1,4 +1,5 @@
 from ngboost.distns.lognormal import LogNormalCRPScoreCensored
+from ngboost.distns.multivariate_normal import MVNLogScore
 from ngboost.scores import CRPScore, MLE
 from sktime.datatypes import check_raise, convert_to
 
@@ -176,7 +177,7 @@ def test_regression_ngboost_intervals(id_code, alg_name, alg_func, fig_filename_
         # this should be based on all metric lengths
         dist = MultivariateNormal(num_metrics)
 
-        ngb = NGBRegressor(Dist=dist, verbose=True, Score=MLE, n_estimators=n_estimators, natural_gradient=True)
+        ngb = NGBRegressor(Dist=dist, verbose=True, Score=MVNLogScore, n_estimators=n_estimators, natural_gradient=True)
         ngb.fit(x_features_train, metrics_train, early_stopping_rounds=1000)
         y_dist_test = ngb.pred_dist(x_features_test, max_iter=ngb.best_val_loss_itr)
         time_end = timer()

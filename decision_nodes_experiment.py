@@ -3,6 +3,7 @@ import datasets
 
 pred_eterry_base_path = "./for-aggregation-results/chosen-predictors/predictors/eterry"
 pred_multiturtlebot_base_path = "./for-aggregation-results/chosen-predictors/predictors/multiturtlebot"
+pred_mycobot_base_path = "./for-aggregation-results/chosen-predictors/predictors/mycobot"
 
 eterry_file_options = [
     # top choices for approaches
@@ -80,11 +81,53 @@ tb_metric_weights = {
     "distanceTB2Away" : 1.0
 }
 
+######################################################################################################################################
 
-def run_analysis_different_fronts(run_eterry=False, run_tb=False):
+mycobot_file_options = [
+    {
+        "objectFinalPositionError_Pred": "regressionMycobot-Fourjoints-ObjectPosition_TSForest-mycobot-param-mag-split4-300-0.5.predictor",
+        "paramMagnitudes_Pred": "regressionMycobot-Fourjoints-ParamMagTSFreshWin_GradBoost-mycobot-param-mag-split0-300-2.predictor",
+        "decisionMetrics": "mycobot-decisionTestMetrics.csv",
+        "result_filename": "mycobot-choice1-decisions.csv"
+    },
+]
+
+mycobot_metric_columns_direction = {
+    "objectFinalPositionError" : "max",
+    "paramMagnitudes" : "min"
+}
+
+mycobot_static_thresholds = {
+    "objectFinalPositionError": 1.0,
+    "paramMagnitudes": 2.0
+}
+
+mycobot_distance_divisor_per_metric = {
+    "objectFinalPositionError" : 1.0,
+    "paramMagnitudes" : 1.0
+}
+
+mycobot_metric_weights = {
+    "objectFinalPositionError" : 1.0,
+    "paramMagnitudes" : 1.0
+}
+
+def run_analysis_different_fronts(run_eterry=False, run_tb=False, run_mycobot=True):
+    if run_mycobot:
+        for pred_files in mycobot_file_options:
+            analyse_pareto_fronts.test_evaluate_predictor_decisions_for_experiment(datasets.expt_config_mycobot_fourjoints_bothmetrics_objectposition,
+                                                                                    pred_mycobot_base_path,
+                                                                                    pred_files,
+                                                                                    mycobot_metric_columns_direction,
+                                                                                    mycobot_static_thresholds,
+                                                                                    mycobot_distance_divisor_per_metric,
+                                                                                    mycobot_metric_weights)
+
     if run_eterry:
         for pred_files in eterry_file_options:
-            analyse_pareto_fronts.test_evaluate_predictor_decisions_for_experiment(datasets.expt_config_eterry_human1_15files, pred_eterry_base_path, pred_files, eterry_metric_columns_direction, eterry_static_thresholds, eterry_distance_divisor_per_metric, eterry_metric_weights)
+            analyse_pareto_fronts.test_evaluate_predictor_decisions_for_experiment(datasets.expt_config_eterry_human1_15files,
+                                                                                   pred_eterry_base_path,
+                                                                                   pred_files, eterry_metric_columns_direction, eterry_static_thresholds, eterry_distance_divisor_per_metric, eterry_metric_weights)
 
     if run_tb:
         for pred_files in multiturtlebot_file_options:
