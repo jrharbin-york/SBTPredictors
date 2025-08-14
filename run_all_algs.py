@@ -18,7 +18,7 @@ interval_results = None
 data_samples_per_second = 10.0
 fixed_window_size = 30.0
 
-def run_tsfreshwin_gradboost_fixed_window_size(name_base, results_tag, expt_config, alg_params1=settings.n_estimator_choices, alg_params2=settings.min_samples_split):
+def run_tsfreshwin_gradboost_fixed_window_size(name_base, results_tag, expt_config, k, alg_params1=settings.n_estimator_choices, alg_params2=settings.min_samples_split):
     global combined_results_all_algs
     alg_name = "TSFreshWin_GradBoost"
     combined_name = results_tag + alg_name
@@ -31,10 +31,11 @@ def run_tsfreshwin_gradboost_fixed_window_size(name_base, results_tag, expt_conf
                                                     alg_params1=alg_params1,
                                                     alg_params2=alg_params2,
                                                     param1_name = "n_estimators",
-                                                    param2_name = "min_samples_split")
+                                                    param2_name = "min_samples_split",
+                                                    k=k)
                                                     
 
-def run_tsfreshwin_ridge_fixed_window_size(name_base, results_tag, expt_config, alg_params1=settings.max_alphas, alg_params2=settings.alpha_step_values):
+def run_tsfreshwin_ridge_fixed_window_size(name_base, results_tag, expt_config, k, alg_params1=settings.max_alphas, alg_params2=settings.alpha_step_values, k):
     global combined_results_all_algs
     alg_name = "TSFreshWin_Ridge"
     combined_name = results_tag + "_" + alg_name
@@ -47,9 +48,10 @@ def run_tsfreshwin_ridge_fixed_window_size(name_base, results_tag, expt_config, 
                                                     alg_params1=alg_params1,
                                                     alg_params2=alg_params2,
                                                     param1_name = "max_alpha",
-                                                    param2_name = "alpha_step")
+                                                    param2_name = "alpha_step",
+                                                    k=k)
 
-def run_tsforest_fixed_window_size(name_base, results_tag, expt_config):
+def run_tsforest_fixed_window_size(name_base, results_tag, expt_config, k):
     global combined_results_all_algs
     alg_name = "TSForest"
     combined_name = results_tag + "_" + alg_name
@@ -63,13 +65,14 @@ def run_tsforest_fixed_window_size(name_base, results_tag, expt_config):
                                                    # min_interval is always constant for mycobot
                                                    alg_params2=[0.3],
                                                    param1_name = "n_estimators",
-                                                   param2_name = "window_size")
+                                                   param2_name = "window_size",
+                                                   k=k)
     
 ################################################################################
 # Variable window size variants
 ################################################################################
 
-def run_tsfreshwin_gradboost(name_base, results_tag, expt_config, alg_params1=settings.n_estimator_choices, alg_params2=settings.window_size_choices_secs):
+def run_tsfreshwin_gradboost(name_base, results_tag, expt_config, k, alg_params1=settings.n_estimator_choices, alg_params2=settings.window_size_choices_secs,k):
     global combined_results_all_algs
     alg_name = "TSFreshWin_GradBoost"
     combined_name = results_tag + alg_name
@@ -82,9 +85,10 @@ def run_tsfreshwin_gradboost(name_base, results_tag, expt_config, alg_params1=se
                                                     alg_params1=alg_params1,
                                                     alg_params2=alg_params2,
                                                     param1_name = "n_estimators",
-                                                    param2_name = "window_size")
+                                                    param2_name = "window_size",
+                                                    k=k)
 
-def run_tsfreshwin_gradboost_intervals(name_base, results_tag, expt_config):
+def run_tsfreshwin_gradboost_intervals(name_base, results_tag, expt_config, k):
     alg_name = "TSFreshWin_GradBoost"
     combined_name = results_tag + alg_name
     combined_results_all_algs = predictor.run_test_intervals(name_base, expt_config,
@@ -147,7 +151,7 @@ def run_quantile_dl(name_base, results_tag, expt_config):
                                                                 param1_name="n_estimators",
                                                                 param2_name="window_size")
     
-def run_tsfreshwin_ridge(name_base, results_tag, expt_config, alg_params1=settings.max_alphas, alg_params2=settings.window_size_choices_secs):
+def run_tsfreshwin_ridge(name_base, results_tag, expt_config, k, alg_params1=settings.max_alphas, alg_params2=settings.window_size_choices_secs):
     global combined_results_all_algs
     alg_name = "TSFreshWin_Ridge"
     combined_name = results_tag + "_" + alg_name
@@ -160,9 +164,10 @@ def run_tsfreshwin_ridge(name_base, results_tag, expt_config, alg_params1=settin
                                                     alg_params1=alg_params1,
                                                     alg_params2=alg_params2,
                                                     param1_name = "max_alpha",
-                                                    param2_name = "window_size")
+                                                    param2_name = "window_size",
+                                                    k=k)
 
-def run_tsforest(name_base, results_tag, expt_config, alg_params1=settings.n_estimator_choices, alg_params2=settings.window_size_choices_secs):
+def run_tsforest(name_base, results_tag, expt_config, k, alg_params1=settings.n_estimator_choices, alg_params2=settings.window_size_choices_secs):
     global combined_results_all_algs
     alg_name = "TSForest"
     combined_name = results_tag + "_" + alg_name
@@ -176,11 +181,12 @@ def run_tsforest(name_base, results_tag, expt_config, alg_params1=settings.n_est
                                                    alg_params1=alg_params1,
                                                    alg_params2=alg_params2,
                                                    param1_name = "n_estimators",
-                                                   param2_name = "window_size")
+                                                   param2_name = "window_size",
+                                                   k=k)
    
 ################################################################################
 
-def run_minirocket_ridge(name_base, results_tag, expt_config, alg_params1=settings.rocket_kernel_choices, alg_params2=settings.max_alphas ):
+def run_minirocket_ridge(name_base, results_tag, expt_config, k, alg_params1=settings.rocket_kernel_choices, alg_params2=settings.max_alphas ):
     global combined_results_all_algs
     alg_name = "MiniRocket_Ridge"
     combined_name = results_tag + "_" + alg_name
@@ -193,9 +199,10 @@ def run_minirocket_ridge(name_base, results_tag, expt_config, alg_params1=settin
                                                    alg_params1=alg_params1,
                                                    alg_params2=alg_params2,
                                                    param1_name = "num_kernels",
-                                                   param2_name = "max_alpha")
+                                                   param2_name = "max_alpha",
+                                                   k=k)
 
-def run_inceptiontime(name_base, results_tag, expt_config):
+def run_inceptiontime(name_base, results_tag, expt_config, k):
     global combined_results_all_algs
     alg_name = "InceptionTime"
     combined_name = results_tag + "_" + alg_name
@@ -209,9 +216,10 @@ def run_inceptiontime(name_base, results_tag, expt_config):
                                                    alg_params1=settings.inceptiontime_n_epochs,
                                                    alg_params2=settings.inceptiontime_kernel_sizes,
                                                    param1_name = "n_epochs",
-                                                   param2_name = "kernel_size")
+                                                   param2_name = "kernel_size",
+                                                   k=k)
 
-def run_minirocket_gradboost(name_base, results_tag, expt_config, alg_params1=settings.rocket_kernel_choices, alg_params2=settings.n_estimator_choices):
+def run_minirocket_gradboost(name_base, results_tag, expt_config, k, alg_params1=settings.rocket_kernel_choices, alg_params2=settings.n_estimator_choices):
     global combined_results_all_algs
     alg_name = "MiniRocket_GradBoost"
     combined_name = results_tag + "_" + alg_name
@@ -224,9 +232,10 @@ def run_minirocket_gradboost(name_base, results_tag, expt_config, alg_params1=se
                                                     alg_params1=alg_params1,
                                                     alg_params2=alg_params2,
                                                     param1_name = "num_kernels",
-                                                    param2_name = "n_estimators")
+                                                    param2_name = "n_estimators",
+                                                    k=k)
 
-def run_all_algs_on_dataset(expt_config, using_inceptiontime = True, run_intervals=False, run_non_intervals=False):
+def run_all_algs_on_dataset(expt_config, k, using_inceptiontime = True, run_intervals=False, run_non_intervals=False):
     global combined_results_all_algs
 
     combined_results_all_algs = None
@@ -271,7 +280,7 @@ def run_all_algs_on_dataset(expt_config, using_inceptiontime = True, run_interva
     combined_results_all_algs.to_csv(combined_result_file, sep=",")
     print(tabulate(combined_results_all_algs, headers="keys"))
 
-def run_filprofiler_memory_tracking(expt_config, memory_filename, selected_alg, alg_params1, alg_params2):
+def run_filprofiler_memory_tracking(expt_config, memory_filename, selected_alg, k, alg_params1, alg_params2):
     global combined_results_all_algs
 
     if not (memory_filename is None):
@@ -284,19 +293,19 @@ def run_filprofiler_memory_tracking(expt_config, memory_filename, selected_alg, 
 
     if expt_config["use_fixed_windows"]:
         if selected_alg == "TSFreshWin_GradBoost":
-            run_tsfreshwin_gradboost_fixed_window_size(name_base, dataset_name, expt_config, alg_params1=alg_params1, alg_params2=alg_params2)
+            run_tsfreshwin_gradboost_fixed_window_size(name_base, dataset_name, expt_config, k, alg_params1=alg_params1, alg_params2=alg_params2)
         if selected_alg == "TSFreshWin_Ridge":
-            run_tsfreshwin_ridge_fixed_window_size(name_base, dataset_name, expt_config, alg_params1=alg_params1, alg_params2=alg_params2)
+            run_tsfreshwin_ridge_fixed_window_size(name_base, dataset_name, expt_config, k, alg_params1=alg_params1, alg_params2=alg_params2)
 
     else:
         if selected_alg == "TSFreshWin_GradBoost":
-            run_tsfreshwin_gradboost(name_base, dataset_name, expt_config, alg_params1=alg_params1, alg_params2=alg_params2)
+            run_tsfreshwin_gradboost(name_base, dataset_name, expt_config, k, alg_params1=alg_params1, alg_params2=alg_params2)
         if selected_alg == "TSFreshWin_Ridge":
-            run_tsfreshwin_ridge(name_base, dataset_name, expt_config, alg_params1=alg_params1, alg_params2=alg_params2)
+            run_tsfreshwin_ridge(name_base, dataset_name, expt_config, k, alg_params1=alg_params1, alg_params2=alg_params2)
 
     if selected_alg == "MiniRocket_GradBoost":
-        run_minirocket_gradboost(name_base, dataset_name, expt_config, alg_params1=alg_params1, alg_params2=alg_params2)
+        run_minirocket_gradboost(name_base, dataset_name, expt_config, k, alg_params1=alg_params1, alg_params2=alg_params2)
     if selected_alg == "MiniRocket_Ridge":
-        run_minirocket_ridge(name_base, dataset_name, expt_config, alg_params1=alg_params1, alg_params2=alg_params2)
+        run_minirocket_ridge(name_base, dataset_name, expt_config, k, alg_params1=alg_params1, alg_params2=alg_params2)
     if selected_alg == "TSForest":
-        run_tsforest(name_base, dataset_name, expt_config, alg_params1=alg_params1, alg_params2=alg_params2)
+        run_tsforest(name_base, dataset_name, expt_config, k, alg_params1=alg_params1, alg_params2=alg_params2)

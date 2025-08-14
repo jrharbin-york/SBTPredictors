@@ -7,6 +7,8 @@ run_turtlebot = False
 
 run_intervals = False
 
+k = 5
+
 if __name__ == '__main__':
     # Run multiple algs
     if run_intervals:
