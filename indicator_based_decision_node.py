@@ -44,13 +44,10 @@ class IndicatorBasedDecisions(DecisionNode):
             else:
                 relative_quality = predicted_quality_for_indicator / self.best_indicator_value
                 # compute a probability that goes to zero for self.improvement_relative_factor
-                prob_for_quality = relative_quality - self.improvement_relative_factor / (1 - self.improvement_relative_factor)
+                prob_for_quality = (relative_quality - self.improvement_relative_factor) / (1 - self.improvement_relative_factor)
                 log.debug(f"relative_quality={relative_quality},prob_for_quality={prob_for_quality}")
-                if predicted_quality_for_indicator > (self.best_indicator_value * self.improvement_relative_factor):
-                    # if the prediction is worse, accept with a given probability
-                    return random.uniform(0.0, 1.0) < prob_for_quality
-                else:
-                    return False
+                # if the prediction is worse, accept with given probability
+                return random.uniform(0.0, 1.0) < prob_for_quality
 
     def accept_test(self, test_id, actual_test_metrics):
         self.accepted_tests.append(actual_test_metrics)

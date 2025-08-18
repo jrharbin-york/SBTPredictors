@@ -571,7 +571,6 @@ def test_regression(name_base, id_code, result_desc, alg_name, alg_func, fig_fil
     decision_test_metrics_filename_single = name_base + "-decisionTestMetricsSingle-" + str(alg_param1) + "-" + str(alg_param2) + ".csv"
     decision_test_metrics.to_csv(decision_test_metrics_filename_single)
 
-    k=5
     kf = KFold(n_splits=k, shuffle=k_fold_shuffle)
 
     # Accumulate these over all splits
@@ -856,7 +855,7 @@ def log_latex_summary_results(stats_results, filename="summary-res.tex", sorted_
         f.write(latex_table)
     log.info(f"LaTeX summary results saved to {filename}")
 
-def run_test(name_base, expt_config, combined_results_all_tests, alg_name, regression, alg_func, alg_params1, alg_params2, param1_name, param2_name):
+def run_test(name_base, expt_config, combined_results_all_tests, alg_name, regression, alg_func, alg_params1, alg_params2, param1_name, param2_name, k=5):
     # Put the directory here
 
     if regression:
@@ -882,7 +881,7 @@ def run_test(name_base, expt_config, combined_results_all_tests, alg_name, regre
             id_code = "ID" + str(id_num) + param1_name + str(param1) + "_" + param2_name + str(param2)
             result_desc = alg_name + "_" + param1_name + "=" + str(param1) + "_" + param2_name + "_" + str(param2)
             if regression:
-                individual_results, stats_results = test_regression(name_base, id_code, result_desc, alg_name, alg_func, fig_filename_func, individual_results, expt_config, stats_results, alg_param1=param1, alg_param2=param2)
+                individual_results, stats_results = test_regression(name_base, id_code, result_desc, alg_name, alg_func, fig_filename_func, individual_results, expt_config, stats_results, alg_param1=param1, alg_param2=param2, k=k)
             else:
                 individual_results, stats_results = test_classification(id_code, result_desc, alg_name, alg_func, fig_filename_func, individual_results, expt_config, stats_results, alg_param1=param1, alg_param2=param2)
             print(tabulate(stats_results, headers="keys"))
