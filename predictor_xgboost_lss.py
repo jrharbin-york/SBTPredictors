@@ -1,7 +1,4 @@
-import keras
-from ngboost.distns.lognormal import LogNormalCRPScoreCensored
-from ngboost.distns.multivariate_normal import MVNLogScore
-from ngboost.scores import CRPScore, MLE
+import torch
 from sktime.datatypes import check_raise, convert_to
 
 from sktime.performance_metrics.forecasting import MeanSquaredError
@@ -13,16 +10,11 @@ from timeit import default_timer as timer
 
 from xgboostlss.model import *
 from xgboostlss.distributions.MVN import *
-import xgboostlss as xgb
+import xgboost as xgb
 
 from sklearn.model_selection import train_test_split
-import pandas as pd
-import multiprocessing
-import plotnine
-from plotnine import *
 
 import tsfresh
-from tensorflow.keras.callbacks import EarlyStopping
 from tsfresh.feature_extraction.settings import ComprehensiveFCParameters
 from sktime.transformations.panel.tsfresh import TSFreshFeatureExtractor
 
@@ -35,16 +27,11 @@ import structlog
 
 import data_loader
 
-from ngboost import NGBRegressor
-from ngboost.distns import Exponential, Normal, MultivariateNormal
-
 from sktime.pipeline import make_pipeline
 from tabulate import tabulate
 
-import qrnn
-from predictor import conf_intervals_from_quantiles, quantile_loss, confidence_intervals_from_normal_distributions
-
-
+import settings
+from datasets import expt_config_eterry_human1_15files
 
 log = structlog.get_logger()
 
@@ -70,8 +57,8 @@ def calc_mae_from_intervals(lower, upper, actual, is_inside_interval):
 def calc_mae_from_intervals_all(lower, upper, actual, is_inside_interval):
     size = lower.size
     maes = np.zeros(size)
-    for i in range(0,size):
-        maes[i] = calc_mae_from_intervals(lower[i], upper[i], actual[i], is_inside_interval[i])
+    #for i in range(0,size):
+    #   maes[i] = calc_mae_from_intervals(lower[i], upper[i], actual[i], is_inside_interval[i])
     return maes
 
 def create_tsfresh_windowed_featuresonly(params, n_estimators, windowsize, res_samples_per_second):
@@ -152,9 +139,8 @@ def test_regression_xgboost_intervals(id_code, alg_name, alg_func, fig_filename_
     k=5
     kf = KFold(n_splits=k, shuffle=k_fold_shuffle)
 
-    #target_metric_names = ["distanceToHuman1", "distanceToStaticHumans", "pathCompletion"]
+    target_metric_names = ["distanceToHuman1", "distanceToStaticHumans", "pathCompletion"]
     #target_metric_names = ["pathCompletion", "distanceToStaticHumans", "distanceToHuman1"]
-    target_metric_names = ["pathCompletion"]
     num_metrics = len(target_metric_names)
 
     n_estimators = alg_param1
@@ -177,8 +163,14 @@ def test_regression_xgboost_intervals(id_code, alg_name, alg_func, fig_filename_
 
         train_data = data_loader.create_combined_data(base_dir, data_files_train, needed_columns)
         test_data = data_loader.create_combined_data(base_dir, data_files_test, needed_columns)
+
         metrics_train = np.array(metrics_train_pandas[target_metric_names])
         metrics_test = np.array(metrics_test_pandas[target_metric_names])
+
+        train_data, eval_data, metrics_train, metrics_eval = train_test_split(train_data,
+                                                                              metrics_train,
+                                                                              test_size=0.25,
+                                                                              random_state=1)  # 0.25 x 0.8 = 0.2
 
         time_start = timer()
         # instead of single pipeline
@@ -188,26 +180,27 @@ def test_regression_xgboost_intervals(id_code, alg_name, alg_func, fig_filename_
 
         features_pipe.fit(train_data, metrics_train)
         x_features_train = features_pipe.transform(train_data)
+        x_features_eval = features_pipe.transform(eval_data)
         x_features_test = features_pipe.transform(test_data)
 
         # TODO: make this a param
-        n_cpu = 12
+        n_cpu = 24
 
         # Train
-        # this needs to be the features!
         dtrain = xgb.DMatrix(x_features_train, label=metrics_train, nthread=n_cpu)
         n_targets = metrics_train.shape[1]
+        print(f"n_targets={n_targets}")
 
         # Validation - perform further split for this
-        deval = xgb.DMatrix(x_eval, label=y_eval, nthread=n_cpu)
+        deval = xgb.DMatrix(x_features_eval, label=metrics_eval, nthread=n_cpu)
 
         # Test
-        dtest = xgb.DMatrix(x_features_train, nthread=n_cpu)
+        dtest = xgb.DMatrix(x_features_test, nthread=n_cpu)
 
         # this should be based on all metric lengths
         # Specifies a multivariate Normal distribution, using the Cholesky decompoisition. See ?MVN for details.
-        xgblss = xgb.XGBoostLSS(
-            xgb.MVN(D=n_targets,  # Specifies the number of targets
+        xgblss = XGBoostLSS(
+            MVN(D=n_targets,  # Specifies the number of targets
                 stabilization="None",  # Options are "None", "MAD", "L2".
                 response_fn="exp",
                 # Function to transform the lower-triangular factor of the covariance, e.g., "exp" or "softplus".
@@ -228,12 +221,12 @@ def test_regression_xgboost_intervals(id_code, alg_name, alg_func, fig_filename_
         np.random.seed(123)
         opt_param = xgblss.hyper_opt(param_dict,
                                      dtrain,
-                                     num_boost_round=100,  # Number of boosting iterations.
+                                     num_boost_round=500,  # Number of boosting iterations.
                                      nfold=5,  # Number of cv-folds.
                                      early_stopping_rounds=20,  # Number of early-stopping rounds
                                      max_minutes=120,
                                      # Time budget in minutes, i.e., stop study after the given number of minutes.
-                                     n_trials=20,
+                                     n_trials=30,
                                      # The number of trials. If this argument is set to None, there is no limitation on the number of trials.
                                      silence=False,
                                      # Controls the verbosity of the trail, i.e., user can silence the outputs of the trail.
@@ -264,11 +257,12 @@ def test_regression_xgboost_intervals(id_code, alg_name, alg_func, fig_filename_
         )
 
         # Set seed for reproducibility
-        #torch.manual_seed(123)
+        torch.manual_seed(123)
 
         # Number of samples to draw from predicted distribution
         n_samples = 1000
-        quant_sel = [0.05, 0.95]  # Quantiles to calculate from predicted distribution
+        ## ???
+        quant_sel = [0.05, 0.50, 0.95]  # Quantiles to calculate from predicted distribution
 
         # Sample from predicted distribution
         pred_samples = xgblss.predict(dtest,
@@ -289,12 +283,14 @@ def test_regression_xgboost_intervals(id_code, alg_name, alg_func, fig_filename_
 
 
         for j in range(0, num_metrics):
-            # may need to filter using
             metric_name = target_metric_names[j]
-            pred_ql_metric_name = pred_quantiles[pred_samples.target=="metric_name"]
+            metric_filter_name = "y" + str(j+1)
+            pred_ql_metric_name = pred_quantiles[pred_samples.target==metric_filter_name]
 
             conf_intervals_lower = pred_ql_metric_name["quant_0.05"]
             conf_intervals_upper = pred_ql_metric_name["quant_0.95"]
+            print(f"quant cols={pred_ql_metric_name.columns}")
+            median = pred_ql_metric_name["quant_0.5"] # note it always rounds off trailing zeros from quantile name
 
             print(f"metrics_train={metrics_train.shape}")
             # metrics_train needs to be a 2D array - number of columns same an number of metrics
@@ -303,9 +299,9 @@ def test_regression_xgboost_intervals(id_code, alg_name, alg_func, fig_filename_
 
             actual_val = metrics_test[:, j]
 
-            interval_width = conf_intervals_upper[:,j] - conf_intervals_lower[:,j]
-            is_inside_interval = np.logical_and((actual_val >= conf_intervals_lower[:,j]), (actual_val <= conf_intervals_upper[:,j]))
-            mae_intervals = calc_mae_from_intervals_all(conf_intervals_lower[:,j], conf_intervals_upper[:,j], actual_val, is_inside_interval)
+            interval_width = conf_intervals_upper - conf_intervals_lower
+            is_inside_interval = np.logical_and((actual_val >= conf_intervals_lower), (actual_val <= conf_intervals_upper))
+            mae_intervals = calc_mae_from_intervals_all(conf_intervals_lower, conf_intervals_upper, actual_val, is_inside_interval)
 
             interval_width_mean = np.mean(interval_width)
             interval_width_stddev = np.std(interval_width)
@@ -319,9 +315,9 @@ def test_regression_xgboost_intervals(id_code, alg_name, alg_func, fig_filename_
                 print("pathCompletion")
 
             # when doing multi-predictions need to create hash of predictions per metric
-            predicted_vs_actual = pd.DataFrame({'predicted_val_lower':conf_intervals_lower[:,j],
-                                                     'predicted_val_median':normal_mean[:,j],
-                                                     'predicted_val_upper':conf_intervals_upper[:,j],
+            predicted_vs_actual = pd.DataFrame({'predicted_val_lower':conf_intervals_lower,
+                                                     'predicted_val_median':median,
+                                                     'predicted_val_upper':conf_intervals_upper,
                                                      'actual_val':actual_val,
                                                      'interval_width':interval_width,
                                                      'inside_interval_proportion':inside_interval_proportion,
@@ -335,7 +331,8 @@ def test_regression_xgboost_intervals(id_code, alg_name, alg_func, fig_filename_
                                                           'actual_val',
                                                           'interval_width',
                                                           'is_inside_interval',
-                                                          'mae_intervals' ])
+                                                          'mae_intervals'
+                                                          ])
             log.debug("Plotting regression intervals plot to %s", fig_filename)
 
             plot_y_min = 0.0
@@ -355,6 +352,7 @@ def test_regression_xgboost_intervals(id_code, alg_name, alg_func, fig_filename_
 
             plot_regression_intervals_new(expt_config["regression_graph_title"], predicted_vs_actual, expt_config, fig_filename, plot_y_lower=plot_y_min, plot_y_upper=plot_y_max)
 
+            time_end = timer()
             time_diff = time_end - time_start
 
             results_this_test = {"id":id_code,
@@ -368,6 +366,7 @@ def test_regression_xgboost_intervals(id_code, alg_name, alg_func, fig_filename_
                                  "filename_graph":fig_filename,
                                  "time_diff":time_diff
                                  }
+
             print(f"results_this_test={results_this_test}")
             pd_res.loc[len(pd_res)] = results_this_test
 
@@ -416,7 +415,7 @@ def run_test_xgboostlss(name_base, expt_config, combined_results_all_tests, alg_
         for param2 in alg_params2:
             n_estimators = param1
             window_size = param2
-            fig_filename_func = lambda id_n, k_split: name_base + "qrnn-intervals-" + alg_name + "-ID" + str(id_n) + "-" + str(param1) + "-" + str(param2) + "-" + "k_split" + str(k_split) +".png"
+            fig_filename_func = lambda id_n, k_split, metric_name: name_base + "xgboost-intervals-" + metric_name + "-" + alg_name + "-ID" + str(id_n) + "-" + str(param1) + "-" + str(param2) + "-" + "k_split" + str(k_split) +".png"
             id_num+=1
             id_code = "ID" + str(id_num) + param1_name + str(param1) + "_" + param2_name + str(param2)
             alg_func = lambda min_samples_split, min_samples_leaf, params: create_tsfresh_windowed_featuresonly(params, n_estimators, window_size, 10.0)
@@ -428,5 +427,33 @@ def run_test_xgboostlss(name_base, expt_config, combined_results_all_tests, alg_
     individual_results.to_csv(results_file, sep=",")
     stats_results.to_csv(summary_file, sep=",")
     print(tabulate(stats_results, headers="keys"))
+    return stats_results
 
 # Need a launcher directly here
+
+expt_config_eterry_human1 = expt_config_eterry_human1_15files
+
+interval_results = None
+
+def run_tsfreshwin_xgboost_intervals_multi(name_base, results_tag, expt_config):
+    alg_name = "TSFreshWin_XGBoostMulti"
+    global interval_results
+    interval_results = None
+
+    combined_name = results_tag + alg_name
+    interval_results = run_test_xgboostlss(name_base,
+                                           expt_config,
+                                           interval_results,
+                                           alg_name,
+                                           alg_params1 = settings.n_estimator_choices,
+                                           alg_params2 = settings.window_size_choices_secs,
+                                           param1_name = "n_estimators",
+                                           param2_name = "window_size")
+
+
+
+if __name__ == '__main__':
+    expt_config = expt_config_eterry_human1_15files
+    results_tag = "xgboost-intervals"
+    name_base = data_loader.create_directory_for_results(expt_config["dataset_name"]) + "/"
+    run_tsfreshwin_xgboost_intervals_multi(name_base, results_tag, expt_config_eterry_human1)
