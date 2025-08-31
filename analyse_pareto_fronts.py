@@ -1,3 +1,4 @@
+from pymoo.indicators.gd import GD
 from sklearn.model_selection import KFold
 import structlog
 import pandas as pd
@@ -11,6 +12,7 @@ import data_loader
 import datasets
 from decision_node import MissingMetric, NullDecisionNode, RandomDecisionNode
 from fixed_threshold_decision_node import FixedThresholdBased
+from hypervolume_based_decision_node import HypervolumeWithGDRelativeQuality
 from indicator_based_decision_node import IndicatorBasedDecisions
 from simulated_annealing_decision_node import SimulatedAnnealingThreshold, SimulatedAnnealingThresholdSingleDimensional, \
     SimulatedAnnealingThresholdMultiDimensional
@@ -69,8 +71,12 @@ class DecisionNodeAnalysis:
 
         i = 0
         for col in self.metric_cols_chosen:
+            # trying fixing the max point
+            if self.metric_columns_direction[col] == "min":
+                max_of_all[i] = 100.0
+
             if self.metric_columns_direction[col] == "max":
-                # Check: if the metric is maximisation therefore flipped, the "max point" should always be zero...
+                # If the metric is maximisation therefore flipped, the "max point" should always be zero?
                 max_of_all[i] = 0.0
             i+=1
 
@@ -104,6 +110,13 @@ class DecisionNodeAnalysis:
         print(f"HV = {hv_val},IGD = {igd_val}")
         front_info = {"hypervolume": hv_val, "igd": igd_val}
         return front_info
+
+    def gd_for_point(self, front_df, predicted_test_point_df):
+        front = self.front_to_numpy_array(front_df)
+        predicted_test_point = self.front_to_numpy_array(predicted_test_point_df)
+        calc_gd_for_front = GD(front)
+        gd_for_new_point = calc_gd_for_front(predicted_test_point)
+        return gd_for_new_point
 
     def load_test_definition(self, test_id):
         filepath = self.base_files_dir + "/" + test_id
@@ -173,7 +186,7 @@ class DecisionNodeAnalysis:
                 test_id = test_metrics["testID"]
                 # get the test prediction for test N - needs to be formatted as a dict of 1-element arrays, selecting
                 # just the element for that particular test
-                predicted_metrics = { key: value[metric_row_id] for key, value in predicted_metrics_all.items() }
+                predicted_metrics = { key: [value[metric_row_id]] for key, value in predicted_metrics_all.items() }
                 metric_row_id += 1
                 should_execute = decision_node.execute_or_not(test_id, predicted_metrics)
                 if should_execute:
@@ -183,7 +196,7 @@ class DecisionNodeAnalysis:
             tests_chosen = pd.DataFrame(tests_chosen_rows)
             return tests_chosen
         except MissingMetric as mmetric:
-            log.info("Metric", mmetric, " is missing")
+            log.info(f"Metric {mmetric} is missing")
             raise FrontCalculationFailed(mmetric)
 
     def evaluate_decision_nodes_front_quality(self, predictors, decision_node):
@@ -256,19 +269,29 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path
     fixed_threshold_decision_node_2 = FixedThresholdBased(target_metric_ids, 2, static_thresholds, metric_columns_direction)
     fixed_threshold_decision_node_3 = FixedThresholdBased(target_metric_ids, 3, static_thresholds, metric_columns_direction)
 
-    step_accept_factor_count = 12
-    min_accept_factor_value = 0.7
-    max_accept_factor_value = 1.00
+ #   step_accept_factor_count = 12
+ #   min_accept_factor_value = 0.7
+ #   max_accept_factor_value = 1.00
     #accept_worse_prob = 0.5
 
-    accept_factor_values = np.linspace(min_accept_factor_value, max_accept_factor_value, step_accept_factor_count)
-    hypervolume_based_1_0 = IndicatorBasedDecisions("hypervolume", analyser_slow, 1.0, improvement_relative_factor=1.0)
-    hypervolume_based_0_99 = IndicatorBasedDecisions("hypervolume", analyser_slow, 1.0, improvement_relative_factor=0.99)
-    hypervolume_based_0_95 = IndicatorBasedDecisions("hypervolume", analyser_slow, 1.0, improvement_relative_factor=0.95)
+#    accept_factor_values = np.linspace(min_accept_factor_value, max_accept_factor_value, step_accept_factor_count)
+
+#    hypervolume_based_0_99 = IndicatorBasedDecisions("hypervolume", analyser_slow, 1.0, improvement_min_factor=0.99)
+#    hypervolume_based_0_95 = IndicatorBasedDecisions("hypervolume", analyser_slow, 1.0, improvement_min_factor=0.95)
+
+    hypervolume_based_1_0 = HypervolumeWithGDRelativeQuality("hypervolume", analyser_slow, 1.0, improvement_min_factor=1.0,
+                                                    execute_lower_prob=1.0)
+
+    min_accept_worse_prob = 0.0
+    max_accept_worse_prob = 1.0
+    step_accept_factor_count = 20
+    fixed_improvment_factor = 0.0
+
+    accept_worse_probs = np.linspace(min_accept_worse_prob, max_accept_worse_prob, step_accept_factor_count)
 
     hypervolume_nodes_single_range = list(
-        map(lambda afactor: IndicatorBasedDecisions("hypervolume", analyser_slow, 1.0, improvement_relative_factor=afactor)
-                    , accept_factor_values))
+        map(lambda lprob: HypervolumeWithGDRelativeQuality("hypervolume", analyser_slow, 1.0, improvement_min_factor=fixed_improvment_factor, execute_lower_prob=lprob)
+                    , accept_worse_probs))
 
     normal_decision_nodes = [
         null_decision_node,
@@ -287,11 +310,10 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path
     decision_nodes_multi_range = list(map (lambda temp: SimulatedAnnealingThresholdMultiDimensional(target_metric_ids, metric_columns_direction, distance_divisor_per_metric, initial_temperature=temp), temperature_ranges))
 
     #decision_nodes_fast = decision_nodes_single_range + decision_nodes_multi_range + normal_decision_nodes
-    decision_nodes_fast = []
+    decision_nodes_fast = [hypervolume_based_1_0]
+    #decision_nodes_fast = []
 
-    #decision_nodes_slow = [hypervolume_based_1_0, hypervolume_based_0_99, hypervolume_based_0_95]
-    #decision_nodes_slow = [hypervolume_based_1_0, hypervolume_based_0_99, hypervolume_based_0_95] + hypervolume_nodes_single_range
-    decision_nodes_slow = hypervolume_nodes_single_range
+    decision_nodes_slow = [hypervolume_based_1_0] + hypervolume_nodes_single_range
 
     all_decision_node_results = {}
 

@@ -7,25 +7,25 @@ pred_mycobot_base_path = "./for-aggregation-results/chosen-predictors/predictors
 
 eterry_file_options = [
     # top choices for approaches
-    {     "Human1_Pred" :       "regressionETERRY-Human1DistTSFreshWin_GradBoost-eterry-human1-dist-split0-50-0.5.predictor",           # TSFreshWin_GradBoost_50_0.5
-          "StaticHumans_Pred" : "regressionETERRY-StaticHumanDist_TSForest-eterry-statichumans-dist-split0-300-10.0.predictor",      # TSForest_300_10.0
-          "PathCompletion_Pred":"regressionETERRY-PathCompletionTSFreshWin_GradBoost-eterry-pathcompletion-split0-150-0.5.predictor",     # TSFreshWin_GradBoost_150_0.5,
+    {     "distanceToHuman1_Pred" :       "regressionETERRY-Human1DistTSFreshWin_GradBoost-eterry-human1-dist-split0-50-0.5.predictor",           # TSFreshWin_GradBoost_50_0.5
+          "distanceToStaticHumans_Pred" : "regressionETERRY-StaticHumanDist_TSForest-eterry-statichumans-dist-split0-300-10.0.predictor",      # TSForest_300_10.0
+          "pathCompletion_Pred":"regressionETERRY-PathCompletionTSFreshWin_GradBoost-eterry-pathcompletion-split0-150-0.5.predictor",     # TSFreshWin_GradBoost_150_0.5,
           "decisionMetrics" : "eterry-decisionTestMetrics.csv",
           "result_filename" : "eterry-choice1-decisions.csv"
     },
 
     # second choices for approaches
-    {    "Human1_Pred": "regressionETERRY-Human1Dist_MiniRocket_Ridge-eterry-human1-dist-split0-500-20.predictor",                            # MiniRocket_Ridge_500_20.0
-         "StaticHumans_Pred": "regressionETERRY-StaticHumanDistTSFreshWin_GradBoost-eterry-statichumans-dist-split0-150-0.5.predictor",       # TSFreshWin_GradBoost_150_0.5
-         "PathCompletion_Pred": "regressionETERRY-PathCompletion_TSForest-eterry-pathcompletion-split0-50-1.0.predictor",                      # TSForest_50_1.0
+    {    "distanceToHuman1_Pred": "regressionETERRY-Human1Dist_MiniRocket_Ridge-eterry-human1-dist-split0-500-20.predictor",                            # MiniRocket_Ridge_500_20.0
+         "distanceToStaticHumans_Pred": "regressionETERRY-StaticHumanDistTSFreshWin_GradBoost-eterry-statichumans-dist-split0-150-0.5.predictor",       # TSFreshWin_GradBoost_150_0.5
+         "pathCompletion_Pred": "regressionETERRY-PathCompletion_TSForest-eterry-pathcompletion-split0-50-1.0.predictor",                      # TSForest_50_1.0
          "decisionMetrics": "eterry-decisionTestMetrics.csv",
          "result_filename" : "eterry-choice2-decisions.csv"
     },
 
     # third choices for approaches
-    {    "Human1_Pred": "regressionETERRY-Human1Dist_MiniRocket_GradBoost-eterry-human1-dist-split0-1000-50.predictor",            # MiniRocket_GradBoost_1000_50
-         "StaticHumans_Pred": "regressionETERRY-StaticHumanDist_MiniRocket_GradBoost-eterry-statichumans-dist-split0-2000-150.predictor",       # MiniRocket_GradBoost_2000_150
-         "PathCompletion_Pred": "regressionETERRY-PathCompletion_MiniRocket_GradBoost-eterry-pathcompletion-split0-500-20.predictor",      # MiniRocket_GradBoost_500_20.0
+    {    "distanceToHuman1_Pred": "regressionETERRY-Human1Dist_MiniRocket_GradBoost-eterry-human1-dist-split0-1000-50.predictor",            # MiniRocket_GradBoost_1000_50
+         "distanceToStaticHumans_Pred": "regressionETERRY-StaticHumanDist_MiniRocket_GradBoost-eterry-statichumans-dist-split0-2000-150.predictor",       # MiniRocket_GradBoost_2000_150
+         "pathCompletion_Pred": "regressionETERRY-PathCompletion_MiniRocket_GradBoost-eterry-pathcompletion-split0-500-20.predictor",      # MiniRocket_GradBoost_500_20.0
          "decisionMetrics": "eterry-decisionTestMetrics.csv",
          "result_filename" : "eterry-choice3-decisions.csv"
     }
@@ -83,14 +83,26 @@ tb_metric_weights = {
 
 ######################################################################################################################################
 
+# old Mycobot before run changes
+#mycobot_file_options = [
+#    {
+#        "objectFinalPositionError_Pred": "regressionMycobot-Fourjoints-ObjectPosition_TSForest-mycobot-param-mag-split4-300-0.5.predictor",
+#        "paramMagnitudes_Pred": "regressionMycobot-Fourjoints-ParamMagTSFreshWin_GradBoost-mycobot-param-mag-split0-300-2.predictor",
+#        "decisionMetrics": "mycobot-decisionTestMetrics.csv",
+#        "result_filename": "mycobot-choice1-decisions.csv"
+#    },
+#]
+
+# new Mycobot run
 mycobot_file_options = [
     {
-        "objectFinalPositionError_Pred": "regressionMycobot-Fourjoints-ObjectPosition_TSForest-mycobot-param-mag-split4-300-0.5.predictor",
-        "paramMagnitudes_Pred": "regressionMycobot-Fourjoints-ParamMagTSFreshWin_GradBoost-mycobot-param-mag-split0-300-2.predictor",
+        "objectFinalPositionError_Pred": "regressionMycobot-Fourjoints-ObjectPosition_TSForest-mycobot-param-mag-split1-150-0.5.predictor",
+        "paramMagnitudes_Pred": "regressionMycobot-Fourjoints-ParamMag_MiniRocket_Ridge-mycobot-param-mag-split0-2000-20.predictor",
         "decisionMetrics": "mycobot-decisionTestMetrics.csv",
         "result_filename": "mycobot-choice1-decisions.csv"
     },
 ]
+
 
 mycobot_metric_columns_direction = {
     "objectFinalPositionError" : "max",
@@ -112,7 +124,7 @@ mycobot_metric_weights = {
     "paramMagnitudes" : 1.0
 }
 
-def run_analysis_different_fronts(run_eterry=False, run_tb=False, run_mycobot=True):
+def run_analysis_different_fronts(run_eterry=False, run_tb=False, run_mycobot=False):
     if run_mycobot:
         for pred_files in mycobot_file_options:
             analyse_pareto_fronts.test_evaluate_predictor_decisions_for_experiment(datasets.expt_config_mycobot_fourjoints_bothmetrics_objectposition,
@@ -135,4 +147,4 @@ def run_analysis_different_fronts(run_eterry=False, run_tb=False, run_mycobot=Tr
 
 
 if __name__ == '__main__':
-    run_analysis_different_fronts(run_eterry=False, run_tb=True)
+    run_analysis_different_fronts(run_eterry=True,  run_mycobot=True, run_tb=True)

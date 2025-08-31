@@ -1,11 +1,12 @@
 # Indicator-based decision node
 import random
+from abc import ABCMeta, abstractmethod
 
 import pandas as pd
 from decision_node import DecisionNode, log
 
-class IndicatorBasedDecisions(DecisionNode):
-    def __init__(self, indicator_id, decision_analysis, min_tests_to_accept_first, improvement_relative_factor = 1.0):
+class IndicatorBasedDecisions(DecisionNode, metaclass=ABCMeta):
+    def __init__(self, indicator_id, decision_analysis, min_tests_to_accept_first, improvement_min_factor = 1.0, execute_lower_prob=0.5):
         super().__init__()
         # TODO: need to supply the sign and flip if the indicator should be maximised
         self.current_best_front = None
@@ -13,7 +14,8 @@ class IndicatorBasedDecisions(DecisionNode):
         self.best_indicator_value = None
         self.decision_analysis = decision_analysis
         # TODO: could maybe use improvement relative factor like simulated annealing
-        self.improvement_relative_factor = improvement_relative_factor
+        self.improvement_min_factor = improvement_min_factor
+        self.execute_lower_prob = execute_lower_prob
 
         # prob of acceptance is linear shift from 0 (at improvement_rel_Factor e.g. 0.8) to 1 at 1.0 or higher
 
@@ -21,7 +23,11 @@ class IndicatorBasedDecisions(DecisionNode):
         self.min_tests_to_accept_first = min_tests_to_accept_first
 
     def description(self):
-        return f"IndicatorBased({self.indicator_id}, {self.improvement_relative_factor})"
+        return f"IndicatorBased({self.indicator_id}, {self.improvement_min_factor}, {self.execute_lower_prob})"
+
+    @abstractmethod
+    def relative_quality(self, predicted_test_metrics):
+        pass
 
     def execute_or_not(self, test_id, predicted_test_metrics):
         if (self.best_indicator_value is None) or (len(self.accepted_tests) < self.min_tests_to_accept_first):
@@ -34,17 +40,17 @@ class IndicatorBasedDecisions(DecisionNode):
             hypothetical_front = self.decision_analysis.compute_front_from_tests(hypothetical_front_plus_prediction)
 
             predicted_quality_indicators_with_new_test = self.decision_analysis.indicators_for_front(hypothetical_front, self.front_all_tests)
-            predicted_quality_for_indicator = predicted_quality_indicators_with_new_test[self.indicator_id]
-            log.debug(f"point on hypothetical front={len(hypothetical_front)},predicted_quality_for_indicator={predicted_quality_for_indicator}")
+            predicted_hv_for_indicator = predicted_quality_indicators_with_new_test[self.indicator_id]
+            log.debug(f"point on hypothetical front={len(hypothetical_front)},predicted_hv_for_indicator={predicted_hv_for_indicator}")
             # improvement_relative_factor of 1.0 will accept any increase
             
-            if predicted_quality_for_indicator > self.best_indicator_value:
+            if predicted_hv_for_indicator > self.best_indicator_value:
                 # always accept a better value
                 return True
             else:
-                relative_quality = predicted_quality_for_indicator / self.best_indicator_value
+                relative_quality = self.relative_quality(predicted_test_metrics)
                 # compute a probability that goes to zero for self.improvement_relative_factor
-                prob_for_quality = (relative_quality - self.improvement_relative_factor) / (1 - self.improvement_relative_factor)
+                prob_for_quality = self.execute_lower_prob * (relative_quality - self.improvement_min_factor) / (1 - self.improvement_min_factor)
                 log.debug(f"relative_quality={relative_quality},prob_for_quality={prob_for_quality}")
                 # if the prediction is worse, accept with given probability
                 return random.uniform(0.0, 1.0) < prob_for_quality
