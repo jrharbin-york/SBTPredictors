@@ -22,6 +22,10 @@ log = structlog.get_logger()
 class FrontCalculationFailed(Exception):
     """Calculation of a front failed"""
 
+
+class MaxMetricsNotSet(Exception):
+    """Max metrics not yet computed"""
+
 class DecisionNodeAnalysis:
     def __init__(self, base_files_dir, metrics_test_df, metric_columns_direction, needed_operations, PREDICT_ALL_TEST_SIMULTANEOUSLY = True):
         # Hash of the column name and direction - either "max" or "min"
@@ -31,6 +35,11 @@ class DecisionNodeAnalysis:
         self.needed_operations = needed_operations
         self.metric_cols_chosen = list(metric_columns_direction.keys())
         self.PREDICT_ALL_TEST_SIMULTANEOUSLY = PREDICT_ALL_TEST_SIMULTANEOUSLY
+
+        # this has to be computed in scan_for_max_metrics
+        self.max_metrics_for_cols = None
+
+        self.USE_REF_POINT_PRECOMPUTED = True
 
     def compute_front_from_tests(self, metric_tests):
         # columns_direction is a hashtable of column name to either 'max' or 'min'
@@ -82,6 +91,25 @@ class DecisionNodeAnalysis:
 
         return max_of_all
 
+    def max_point_from_all_metrics(self):
+        max_point_array = np.zeros(len(self.metric_columns_direction))
+
+        if self.max_metrics_for_cols is None:
+            raise MaxMetricsNotSet()
+
+        i = 0
+        for col in self.metric_cols_chosen:
+            # trying fixing the max point
+            if self.metric_columns_direction[col] == "min":
+                max_point_array[i] = self.max_metrics_for_cols[col]
+
+            if self.metric_columns_direction[col] == "max":
+                # If the metric is maximisation therefore flipped, the "max point" should always be zero?
+                max_point_array[i] = 0.0
+            i+=1
+
+        return max_point_array
+
     def front_to_numpy_array(self,front):
         # Need to invert the columns for maximisation
         metric_cols_to_invert = [col for col, direction in self.metric_columns_direction.items() if direction == "max"]
@@ -98,10 +126,15 @@ class DecisionNodeAnalysis:
         front = self.front_to_numpy_array(front_df)
         ref_front = self.front_to_numpy_array(ref_front_df)
 
-        if len(front) > 0:
-            ref_point = self.max_point_from_all_fronts([front, ref_front])
+        if self.USE_REF_POINT_PRECOMPUTED:
+            # this uses a reference point pre-computed using the max of
+            # all possible predictions and actual values
+            ref_point = self.max_point_from_all_metrics()
         else:
-            ref_point = self.max_point_from_all_fronts([ref_front])
+            if len(front) > 0:
+                ref_point = self.max_point_from_all_fronts([front, ref_front])
+            else:
+                ref_point = self.max_point_from_all_fronts([ref_front])
 
         hv_ind = HV(ref_point=ref_point)
         igd_ind = IGD(ref_front)
@@ -181,12 +214,19 @@ class DecisionNodeAnalysis:
             else:
                 predicted_metrics_all = self.predict_all_tests_single(test_ids, predictors)
 
+            self.scan_for_max_metrics(predicted_metrics_all, actual_test_metrics)
+
             metric_row_id = 0
             for (test_index, test_metrics) in actual_test_metrics.iterrows():
                 test_id = test_metrics["testID"]
-                # get the test prediction for test N - needs to be formatted as a dict of 1-element arrays, selecting
-                # just the element for that particular test
-                predicted_metrics = { key: [value[metric_row_id]] for key, value in predicted_metrics_all.items() }
+
+                # TODO: for decision nodes; for some reason the indicator-based needs to be formatted as a dict of 1-element arrays,
+                if isinstance(decision_node, IndicatorBasedDecisions):
+                    predicted_metrics = {key: [value[metric_row_id]] for key, value in predicted_metrics_all.items()}
+                else:
+                    # other nodes predictions are just a dict of scalar values
+                    predicted_metrics = {key: value[metric_row_id] for key, value in predicted_metrics_all.items()}
+
                 metric_row_id += 1
                 should_execute = decision_node.execute_or_not(test_id, predicted_metrics)
                 if should_execute:
@@ -203,17 +243,20 @@ class DecisionNodeAnalysis:
         # Assess the front from all tests
         front_all_tests = self.compute_front_from_tests(self.metrics_test_df)
         log.debug(f"Front from all tests:\n {front_all_tests}")
-        quality_indicators_all_tests = self.indicators_for_front(front_all_tests, front_all_tests)
-        log.debug(f"Quality indicators: {quality_indicators_all_tests}")
 
         # Then test the possible decision nodes
         decision_node_results = {}
-
         decision_node.register_front_all_tests(front_all_tests)
+
         if self.PREDICT_ALL_TEST_SIMULTANEOUSLY:
             chosen_by_decision_node = self.choose_tests_from_decision_node_predict_all_first(self.metrics_test_df, decision_node, predictors=predictors)
         else:
             chosen_by_decision_node = self.choose_tests_from_decision_node(self.metrics_test_df, predictors, decision_node)
+
+        # Quality indicators from all tests
+        quality_indicators_all_tests = self.indicators_for_front(front_all_tests, front_all_tests)
+        log.debug(f"Quality indicators: {quality_indicators_all_tests}")
+
         tests_chosen_count = len(chosen_by_decision_node)
         front_with_decisions = self.compute_front_from_tests(chosen_by_decision_node)
         quality_indicators_for_front = self.indicators_for_front(front_with_decisions, front_all_tests)
@@ -242,6 +285,18 @@ class DecisionNodeAnalysis:
                                  }
         return decision_node_results
 
+    def scan_for_max_metrics(self, predicted_metrics_all, actual_test_metrics):
+        # Scan for the max predicted value in each column - return as hash table
+        metrics_max = {key: np.max(all_values) for key, all_values in predicted_metrics_all.items()}
+        # need to find max in the
+        actual_max = actual_test_metrics.max()
+        for m in self.metric_columns_direction.keys():
+            metrics_max[m] = np.max([metrics_max[m], actual_max[m]])
+
+        self.max_metrics_for_cols = metrics_max
+        log.info(f"Found max_metrics_for_cols: {self.max_metrics_for_cols}")
+
+
 def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path, pred_metric_files, metric_columns_direction, static_thresholds, distance_divisor_per_metric, metric_weights):
 
     metric_names = metric_columns_direction.keys()
@@ -259,7 +314,7 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path
     needed_operations = expt_config["needed_columns"]
     base_files_dir = expt_config["data_dir_base"]
     analyser_fast = DecisionNodeAnalysis(base_files_dir, decision_metrics, metric_columns_direction, needed_operations, True)
-    analyser_slow = DecisionNodeAnalysis(base_files_dir, decision_metrics, metric_columns_direction, needed_operations, False)
+    #analyser_slow = DecisionNodeAnalysis(base_files_dir, decision_metrics, metric_columns_direction, needed_operations, False)
     null_decision_node = NullDecisionNode()
 
     random_decision_node_prob = 0.1
@@ -279,8 +334,7 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path
 #    hypervolume_based_0_99 = IndicatorBasedDecisions("hypervolume", analyser_slow, 1.0, improvement_min_factor=0.99)
 #    hypervolume_based_0_95 = IndicatorBasedDecisions("hypervolume", analyser_slow, 1.0, improvement_min_factor=0.95)
 
-    hypervolume_based_1_0 = HypervolumeWithGDRelativeQuality("hypervolume", analyser_slow, 1.0, improvement_min_factor=1.0,
-                                                    execute_lower_prob=1.0)
+    hypervolume_based_1_0 = HypervolumeWithGDRelativeQuality("hypervolume", analyser_fast, 1.0, improvement_min_factor=1.0, execute_lower_prob=1.0)
 
     min_accept_worse_prob = 0.0
     max_accept_worse_prob = 1.0
@@ -290,7 +344,7 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path
     accept_worse_probs = np.linspace(min_accept_worse_prob, max_accept_worse_prob, step_accept_factor_count)
 
     hypervolume_nodes_single_range = list(
-        map(lambda lprob: HypervolumeWithGDRelativeQuality("hypervolume", analyser_slow, 1.0, improvement_min_factor=fixed_improvment_factor, execute_lower_prob=lprob)
+        map(lambda lprob: HypervolumeWithGDRelativeQuality("hypervolume", analyser_fast, 1.0, improvement_min_factor=fixed_improvment_factor, execute_lower_prob=lprob)
                     , accept_worse_probs))
 
     normal_decision_nodes = [
@@ -309,11 +363,7 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path
     decision_nodes_single_range = list(map (lambda temp: SimulatedAnnealingThresholdSingleDimensional(target_metric_ids, metric_columns_direction, distance_divisor_per_metric, metric_weights, initial_temperature=temp), temperature_ranges))
     decision_nodes_multi_range = list(map (lambda temp: SimulatedAnnealingThresholdMultiDimensional(target_metric_ids, metric_columns_direction, distance_divisor_per_metric, initial_temperature=temp), temperature_ranges))
 
-    #decision_nodes_fast = decision_nodes_single_range + decision_nodes_multi_range + normal_decision_nodes
-    decision_nodes_fast = [hypervolume_based_1_0]
-    #decision_nodes_fast = []
-
-    decision_nodes_slow = [hypervolume_based_1_0] + hypervolume_nodes_single_range
+    decision_nodes_fast = decision_nodes_single_range + decision_nodes_multi_range + normal_decision_nodes + [hypervolume_based_1_0] + hypervolume_nodes_single_range
 
     all_decision_node_results = {}
 
@@ -325,12 +375,12 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path
         log.info(f"RES: decision_node_name={decision_node_name}, all_tests_count={decision_node_info["all_tests_count"]}, tests_chosen_count={decision_node_info["tests_chosen_count"]}, front_all_tests_size={decision_node_info["front_all_tests_size"]}, quality_indicators_all_tests={decision_node_info["quality_indicators_all_tests"]}, front_from_decision_node_size={decision_node_info["front_from_decision_node_size"]}, quality_indicators_for_front={decision_node_info["quality_indicators_for_front"]}")
         all_decision_node_results[decision_node_name] = decision_node_info
 
-    for decision_node in decision_nodes_slow:
-        num += 1
-        decision_node_name = decision_node.__class__.__name__ + "_" + str(num)
-        decision_node_info = analyser_slow.evaluate_decision_nodes_front_quality(predictors_for_cols, decision_node)
-        log.info(f"RES: decision_node_name={decision_node_name}, all_tests_count={decision_node_info["all_tests_count"]}, tests_chosen_count={decision_node_info["tests_chosen_count"]}, front_all_tests_size={decision_node_info["front_all_tests_size"]}, quality_indicators_all_tests={decision_node_info["quality_indicators_all_tests"]}, front_from_decision_node_size={decision_node_info["front_from_decision_node_size"]}, quality_indicators_for_front={decision_node_info["quality_indicators_for_front"]}")
-        all_decision_node_results[decision_node_name] = decision_node_info
+#    for decision_node in decision_nodes_slow:
+#        num += 1
+#        decision_node_name = decision_node.__class__.__name__ + "_" + str(num)
+#        decision_node_info = analyser_slow.evaluate_decision_nodes_front_quality(predictors_for_cols, decision_node)
+#        log.info(f"RES: decision_node_name={decision_node_name}, all_tests_count={decision_node_info["all_tests_count"]}, tests_chosen_count={decision_node_info["tests_chosen_count"]}, front_all_tests_size={decision_node_info["front_all_tests_size"]}, quality_indicators_all_tests={decision_node_info["quality_indicators_all_tests"]}, front_from_decision_node_size={decision_node_info["front_from_decision_node_size"]}, quality_indicators_for_front={decision_node_info["quality_indicators_for_front"]}")
+#        all_decision_node_results[decision_node_name] = decision_node_info
 
     results_df = pd.DataFrame(all_decision_node_results.values())
     res_filename = pred_metric_files["result_filename"]

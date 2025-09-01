@@ -867,8 +867,8 @@ def run_test(name_base, expt_config, combined_results_all_tests, alg_name, regre
         stats_results = pd.DataFrame(columns=["param1", "param2", "mean_accuracy", "min_accuracy", "max_accuracy", "mean_top_k_accuracy", "stddev_accuracy", "stddev_top_k_accuracy"])
         name_base = name_base + "classification"
         
-    results_file = name_base + "-" + alg_name + "-res.csv"
-    summary_file = name_base + "-" + alg_name + "-summary-stats.csv"
+    results_file = name_base + "-" + alg_name + "-k" + str(k) + "-res.csv"
+    summary_file = name_base + "-" + alg_name + "-k-" + str(k) + "-summary-stats.csv"
     range_graph_file = name_base + "-" + alg_name + "-range-graph.pdf"
     range_graph_file_png = name_base + "-" + alg_name + "-range-graph.png"
     range_graph_title = expt_config["range_graph_title"]

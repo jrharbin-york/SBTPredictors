@@ -35,7 +35,7 @@ def run_tsfreshwin_gradboost_fixed_window_size(name_base, results_tag, expt_conf
                                                     k=k)
                                                     
 
-def run_tsfreshwin_ridge_fixed_window_size(name_base, results_tag, expt_config, k, alg_params1=settings.max_alphas, alg_params2=settings.alpha_step_values, k):
+def run_tsfreshwin_ridge_fixed_window_size(name_base, results_tag, expt_config, k, alg_params1=settings.max_alphas, alg_params2=settings.alpha_step_values):
     global combined_results_all_algs
     alg_name = "TSFreshWin_Ridge"
     combined_name = results_tag + "_" + alg_name
@@ -72,7 +72,7 @@ def run_tsforest_fixed_window_size(name_base, results_tag, expt_config, k):
 # Variable window size variants
 ################################################################################
 
-def run_tsfreshwin_gradboost(name_base, results_tag, expt_config, k, alg_params1=settings.n_estimator_choices, alg_params2=settings.window_size_choices_secs,k):
+def run_tsfreshwin_gradboost(name_base, results_tag, expt_config, k, alg_params1=settings.n_estimator_choices, alg_params2=settings.window_size_choices_secs):
     global combined_results_all_algs
     alg_name = "TSFreshWin_GradBoost"
     combined_name = results_tag + alg_name

@@ -78,12 +78,10 @@ class PSUtilMemoryTracker(MemoryTracker):
     def with_tracking(self, function_to_track):
         return function_to_track()
 
-
 class PSUtilMemoryTrackerNoGC(PSUtilMemoryTracker):
     def __init__(self):
         super().__init__()
         self.with_gc_disabled = True
-
 
 class FilProfilerMemoryTracker(MemoryTracker):
     def __init__(self, filename):

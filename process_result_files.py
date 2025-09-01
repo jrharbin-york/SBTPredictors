@@ -106,20 +106,24 @@ result_dirs_eterry = ['eterry/yesod_2025_07_14_20_26_54',
                       'eterry/csgpu3_2025_07_14_20_25_45',
                       'eterry/csgpu2_2025_07_14_20_25_33' ]
 
-result_dirs_mycobot = ['mycobot/csgpu3_2025_07_15_11_29_19',
-                       'mycobot/csgpu3_2025_07_15_15_24_24',
-                       'mycobot/yesod_2025_07_15_15_01_54' ]
+#result_dirs_mycobot = ['mycobot/csgpu3_2025_07_15_11_29_19',
+#                       'mycobot/csgpu3_2025_07_15_15_24_24',
+#                       'mycobot/yesod_2025_07_15_15_01_54' ]
+
+result_dirs_mycobot = ['mycobot/yesod_2025_08_11_05_19_31',
+                       'mycobot/yesod_2025_08_12_03_57_21',
+                       'mycobot/kether_2025_08_12_11_04_44' ]
 
 result_dirs_turtlebot = ['turtlebot/csgpu2_2025_07_15_10_36_12',
                          'turtlebot/kether_2025_07_15_03_08_02',
                          'turtlebot/yesod_2025_07_15_03_51_07' ]
 
 base_dir = "./for-aggregation-results"
-merge_results(base_dir,"ETERRY", "Human1Dist", result_dirs_eterry)
-merge_results(base_dir,"ETERRY", "StaticHumanDist", result_dirs_eterry)
-merge_results(base_dir,"ETERRY", "PathCompletion", result_dirs_eterry)
+#merge_results(base_dir,"ETERRY", "Human1Dist", result_dirs_eterry)
+#merge_results(base_dir,"ETERRY", "StaticHumanDist", result_dirs_eterry)
+#merge_results(base_dir,"ETERRY", "PathCompletion", result_dirs_eterry)
 
-merge_results(base_dir,"Mycobot", "Fourjoints", result_dirs_mycobot)
+merge_results(base_dir,"Mycobot", "Fourjoints-ObjectPosition", result_dirs_mycobot)
 
-merge_results(base_dir,"Multiturtlebot", "TB1", result_dirs_turtlebot)
-merge_results(base_dir,"Multiturtlebot", "TB2", result_dirs_turtlebot)
+#merge_results(base_dir,"Multiturtlebot", "TB1", result_dirs_turtlebot)
+#merge_results(base_dir,"Multiturtlebot", "TB2", result_dirs_turtlebot)
