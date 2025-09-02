@@ -14,7 +14,7 @@ class IndicatorBasedDecisions(DecisionNode, metaclass=ABCMeta):
         self.best_indicator_value = None
         self.decision_analysis = decision_analysis
         # TODO: could maybe use improvement relative factor like simulated annealing
-        self.improvement_min_factor = improvement_min_factor
+        #self.improvement_min_factor = improvement_min_factor
         self.execute_lower_prob = execute_lower_prob
 
         # prob of acceptance is linear shift from 0 (at improvement_rel_Factor e.g. 0.8) to 1 at 1.0 or higher
@@ -23,7 +23,7 @@ class IndicatorBasedDecisions(DecisionNode, metaclass=ABCMeta):
         self.min_tests_to_accept_first = min_tests_to_accept_first
 
     def description(self):
-        return f"IndicatorBased({self.indicator_id}, {self.improvement_min_factor}, {self.execute_lower_prob})"
+        return f"IndicatorBased({self.indicator_id}, {self.execute_lower_prob})"
 
     @abstractmethod
     def relative_quality(self, predicted_test_metrics):
@@ -50,7 +50,12 @@ class IndicatorBasedDecisions(DecisionNode, metaclass=ABCMeta):
             else:
                 relative_quality = self.relative_quality(predicted_test_metrics)
                 # compute a probability that goes to zero for self.improvement_relative_factor
-                prob_for_quality = self.execute_lower_prob * (relative_quality - self.improvement_min_factor) / (1 - self.improvement_min_factor)
+
+                # disable the improvment_min_factor to simplify everything - self.improvement_min_factor always 0
+                #prob_for_quality = self.execute_lower_prob * (relative_quality - self.improvement_min_factor) / (1 - self.improvement_min_factor)
+
+                prob_for_quality = self.execute_lower_prob * relative_quality
+
                 log.debug(f"relative_quality={relative_quality},prob_for_quality={prob_for_quality}")
                 # if the prediction is worse, accept with given probability
                 return random.uniform(0.0, 1.0) < prob_for_quality
