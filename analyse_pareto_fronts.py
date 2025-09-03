@@ -344,7 +344,7 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path
     accept_worse_probs = np.linspace(min_accept_worse_prob, max_accept_worse_prob, step_accept_factor_count)
 
     hypervolume_nodes_single_range = list(
-        map(lambda lprob: HypervolumeWithGDRelativeQuality("hypervolume", analyser_fast, 1.0, improvement_min_factor=fixed_improvment_factor, execute_lower_prob=lprob)
+        map(lambda lprob: HypervolumeWithGDRelativeQuality("hypervolume", analyser_fast, 1.0, execute_lower_prob=lprob)
                     , accept_worse_probs))
 
     normal_decision_nodes = [
@@ -363,7 +363,7 @@ def test_evaluate_predictor_decisions_for_experiment(expt_config, pred_base_path
     decision_nodes_single_range = list(map (lambda temp: SimulatedAnnealingThresholdSingleDimensional(target_metric_ids, metric_columns_direction, distance_divisor_per_metric, metric_weights, initial_temperature=temp), temperature_ranges))
     decision_nodes_multi_range = list(map (lambda temp: SimulatedAnnealingThresholdMultiDimensional(target_metric_ids, metric_columns_direction, distance_divisor_per_metric, initial_temperature=temp), temperature_ranges))
 
-    decision_nodes_fast = decision_nodes_single_range + decision_nodes_multi_range + normal_decision_nodes + [hypervolume_based_1_0] + hypervolume_nodes_single_range
+    decision_nodes_fast = [hypervolume_based_1_0] + hypervolume_nodes_single_range + decision_nodes_single_range + decision_nodes_multi_range + normal_decision_nodes
 
     all_decision_node_results = {}
 
