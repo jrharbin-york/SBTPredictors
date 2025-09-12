@@ -93,7 +93,8 @@ class FilProfilerMemoryTracker(MemoryTracker):
 
     def end_tracking(self):
         # Redundant, the tracking is done in with_tracking
-        pass
+        # There are no results to return, since FilProfiler returns it in a web report
+        return 0
 
     def set_filename(self, report_filename):
         self.filename = report_filename

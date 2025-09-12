@@ -13,14 +13,18 @@ alg_choice = sys.argv[1]
 use_case_choice_metric = sys.argv[2]
 memory_filename_base = sys.argv[3]
 
+k_min = None
+k_max = None
+
 if memory_filename_base == "NONE":
     memory_filename_base = None
 
-k_min = int(sys.argv[4])
-k_max = int(sys.argv[5])
 
 if memory_filename_base is None:
     memory_filename = None
+    # only look up k args if doing k testing
+    k_min = int(sys.argv[4])
+    k_max = int(sys.argv[5])
 else:
     memory_filename = memory_filename_base + "/" + use_case_choice_metric + "/" + alg_choice
 
