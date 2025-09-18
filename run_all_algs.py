@@ -252,15 +252,15 @@ def run_all_algs_on_dataset(expt_config, k, using_inceptiontime = True, run_inte
 
     if run_non_intervals:
         if expt_config["use_fixed_windows"]:
-            run_tsfreshwin_gradboost_fixed_window_size(name_base, dataset_name, expt_config)
-            run_tsfreshwin_ridge_fixed_window_size(name_base, dataset_name, expt_config)
+            run_tsfreshwin_gradboost_fixed_window_size(name_base, dataset_name, expt_config, k)
+            run_tsfreshwin_ridge_fixed_window_size(name_base, dataset_name, expt_config, k)
         else:
-            run_tsfreshwin_gradboost(name_base, dataset_name, expt_config)
-            run_tsfreshwin_ridge(name_base, dataset_name, expt_config)
+            run_tsfreshwin_gradboost(name_base, dataset_name, expt_config, k)
+            run_tsfreshwin_ridge(name_base, dataset_name, expt_config, k)
         
-    run_minirocket_gradboost(name_base, dataset_name, expt_config)
-    run_minirocket_ridge(name_base, dataset_name, expt_config)
-    run_tsforest(name_base, dataset_name, expt_config)
+    run_minirocket_gradboost(name_base, dataset_name, expt_config, k)
+    run_minirocket_ridge(name_base, dataset_name, expt_config, k)
+    run_tsforest(name_base, dataset_name, expt_config, k)
 
     # save results before running inceptiontime
     print("Combined results sorted by r2_score...\n")
