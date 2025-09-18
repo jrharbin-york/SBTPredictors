@@ -1,8 +1,6 @@
 # ASSIST SBT Prediction Python Code
 
-Python code for the testing of the ASSIST SBT Prediction components,
-for the publication of the paper: "Accelerated Simulation-Based
-Testing via AI-based Test Effect Prediction"
+Python code for the testing of the ASSIST SBT Prediction components
 
 # Installation
 
@@ -36,10 +34,14 @@ cat custom_tsfresh_features/feature_calculators_extra.py >> $VENV_ROOT/src/tsfre
 
 # Predictor training
 
-Example of predictor training for RQ1 and RQ2
+Example of predictor training for RQ1 and RQ2:
 ```
 python3 ./run_experiments.py
 ```
+
+When executed, predictors, regression graphs and CSV result data will
+be placed under *./results/* with the current data stamp, named for
+specific use cases.
 
 # Decision node testing
 
@@ -47,5 +49,3 @@ Example of decision node testing for RQ3
 ```
 python3 ./analyse_pareto_fronts.py
 ```
-
-
