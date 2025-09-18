@@ -1,25 +1,51 @@
-# SBTPredictors
-Testing of the prediction components
+# ASSIST SBT Prediction Python Code
 
-# Install
+Python code for the testing of the ASSIST SBT Prediction components,
+for the publication of the paper: "Accelerated Simulation-Based
+Testing via AI-based Test Effect Prediction"
 
-- Setup python 3.12 virtual environment, activate it
-- pip install -r requirements.txt
+# Installation
 
-- Need to modify the virtual environment tsfresh code under:
+- Create a new Python 3.12 virtual environment, activate it:
+Example paths are given below:
 
 ```
-$VENV_ROOT/src/tsfresh/tsfresh/feature_extraction/feature_calculators.py
+python3.12 -m venv ~/python-venvs/tsfresh_test_repo
+. ~/python-venvs/tsfresh_test_repo/bin/activate
 ```
 
-add the 2 functions from feature_calculators_extra.py
+In this case the VENV_ROOT is ~/python-venvs/tsfresh_test_repo,
+so set this variable:
+```
+export VENV_ROOT=/home/jharbin/python-venvs/tsfresh_test_repo/
+```
 
-Example of predictor training
+Install the required Python dependencies:
+```
+pip install -r requirements.txt
+```
+
+Because the ASSIST code uses a custom feature within the TSFresh library, 
+this needs to be added to the TSFresh library in the virtual environment. 
+Use the following command to add this feature into the virtual environment
+copy of TSFresh:
+
+```
+cat custom_tsfresh_features/feature_calculators_extra.py >> $VENV_ROOT/src/tsfresh/tsfresh/feature_extraction/feature_calculators.py
+```
+
+# Predictor training
+
+Example of predictor training for RQ1 and RQ2
 ```
 python3 ./run_experiments.py
 ```
 
-Example of decision node testing
+# Decision node testing
+
+Example of decision node testing for RQ3
 ```
 python3 ./analyse_pareto_fronts.py
 ```
+
+
