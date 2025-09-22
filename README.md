@@ -32,20 +32,34 @@ copy of TSFresh:
 cat custom_tsfresh_features/feature_calculators_extra.py >> $VENV_ROOT/src/tsfresh/tsfresh/feature_extraction/feature_calculators.py
 ```
 
-# Predictor training
+# Execution
+## Predictor training
 
 Example of predictor training for RQ1 and RQ2:
 ```
 python3 ./run_experiments.py
 ```
 
-When executed, predictors, regression graphs and CSV result data will
-be placed under *./results/* with the current data stamp, named for
-specific use cases.
+When executed, predictors, regression graphs (PDF) and CSV result data
+will be placed under *./results/* with the current time stamp, named
+for the specific use cases.
 
-# Decision node testing
+An Illustrative example result set for one use case is placed under
+*./example-results* (for reasons of disk space and anonymisation, only
+partial results are provided not including many of the generated
+predictors, since the full generated result sets are many GBs)
 
-Example of decision node testing for RQ3
+# Selector testing
+
+Example of selector testing for RQ3
 ```
-python3 ./analyse_pareto_fronts.py
+python3 ./decision_nodes_experiment.py
 ```
+
+After executing this, CSV files named
+*./[use-case]-choice-decisions.csv* for the specific use case will be
+placed in the repository root describing the specific selector
+performance under different parameters.
+
+A notebook to generate the predictor graphs used in RQ3 is provided in 
+*./notebooks/Decision_Nodes_Analysis.ipynb*
