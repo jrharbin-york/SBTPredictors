@@ -64,3 +64,13 @@ performance under different parameters.
 
 A notebook to generate the predictor graphs used in RQ3 is provided in 
 *./notebooks/Decision_Nodes_Analysis.ipynb*
+
+# Memory tracking
+
+Memory tracking is performed using the Fil profiler.
+```
+./track_all_memory_config.sh
+```
+
+The memory tracking results are placed under *./memory-results/* per specific
+use case.
