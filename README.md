@@ -47,7 +47,8 @@ for the specific use cases.
 An Illustrative example result set for one use case is placed under
 *./example-results* (for reasons of disk space and anonymisation, only
 partial results are provided not including many of the generated
-predictors, since the full generated result sets are many GBs)
+predictors, since the full generated result sets are many GBs). The
+use case name is also anonymised.
 
 # Selector testing
 
