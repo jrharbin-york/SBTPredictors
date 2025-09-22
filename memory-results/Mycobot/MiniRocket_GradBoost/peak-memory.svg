@@ -1,0 +1,1928 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1200" height="940" onload="init(evt)" viewBox="0 0 1200 940" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:fg="http://github.com/jonhoo/inferno">
+    <!--Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples.-->
+    <!--NOTES: -->
+    <defs>
+        <linearGradient id="background" y1="0" y2="1" x1="0" x2="0">
+            <stop stop-color="#eeeeee" offset="5%"/>
+            <stop stop-color="#eeeeb0" offset="95%"/>
+        </linearGradient>
+    </defs>
+    <style type="text/css">
+text { font-family:monospace; font-size:16px }
+#title { text-anchor:middle; font-size:21px; }
+#matched { text-anchor:end; }
+#search { text-anchor:end; opacity:0.1; cursor:pointer; }
+#search:hover, #search.show { opacity:1; }
+#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+#unzoom { cursor:pointer; }
+#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+.hide { display:none; }
+.parent { opacity:0.5; }
+</style>
+    <script type="text/ecmascript"><![CDATA[
+        var nametype = 'Function:';
+        var fontsize = 16;
+        var fontwidth = 0.59;
+        var xpad = 10;
+        var inverted = true;
+        var searchcolor = 'rgb(230,0,230)';
+        var fluiddrawing = true;
+        var truncate_text_right = false;
+    ]]><![CDATA["use strict";
+var details, searchbtn, unzoombtn, matchedtxt, svg, searching, frames, known_font_width;
+function init(evt) {
+    details = document.getElementById("details").firstChild;
+    searchbtn = document.getElementById("search");
+    unzoombtn = document.getElementById("unzoom");
+    matchedtxt = document.getElementById("matched");
+    svg = document.getElementsByTagName("svg")[0];
+    frames = document.getElementById("frames");
+    known_font_width = get_monospace_width(frames);
+    total_samples = parseInt(frames.attributes.total_samples.value);
+    searching = 0;
+
+    // Use GET parameters to restore a flamegraph's state.
+    var restore_state = function() {
+        var params = get_params();
+        if (params.x && params.y)
+            zoom(find_group(document.querySelector('[*|x="' + params.x + '"][y="' + params.y + '"]')));
+        if (params.s)
+            search(params.s);
+    };
+
+    if (fluiddrawing) {
+        // Make width dynamic so the SVG fits its parent's width.
+        svg.removeAttribute("width");
+        // Edge requires us to have a viewBox that gets updated with size changes.
+        var isEdge = /Edge\/\d./i.test(navigator.userAgent);
+        if (!isEdge) {
+            svg.removeAttribute("viewBox");
+        }
+        var update_for_width_change = function() {
+            if (isEdge) {
+                svg.attributes.viewBox.value = "0 0 " + svg.width.baseVal.value + " " + svg.height.baseVal.value;
+            }
+
+            // Keep consistent padding on left and right of frames container.
+            frames.attributes.width.value = svg.width.baseVal.value - xpad * 2;
+
+            // Text truncation needs to be adjusted for the current width.
+            update_text_for_elements(frames.children);
+
+            // Keep search elements at a fixed distance from right edge.
+            var svgWidth = svg.width.baseVal.value;
+            searchbtn.attributes.x.value = svgWidth - xpad;
+            matchedtxt.attributes.x.value = svgWidth - xpad;
+        };
+        window.addEventListener('resize', function() {
+            update_for_width_change();
+        });
+        // This needs to be done asynchronously for Safari to work.
+        setTimeout(function() {
+            unzoom();
+            update_for_width_change();
+            restore_state();
+        }, 0);
+    } else {
+        restore_state();
+    }
+}
+// event listeners
+window.addEventListener("click", function(e) {
+    var target = find_group(e.target);
+    if (target) {
+        if (target.nodeName == "a") {
+            if (e.ctrlKey === false) return;
+            e.preventDefault();
+        }
+        if (target.classList.contains("parent")) unzoom();
+        zoom(target);
+
+        // set parameters for zoom state
+        var el = target.querySelector("rect");
+        if (el && el.attributes && el.attributes.y && el.attributes["fg:x"]) {
+            var params = get_params()
+            params.x = el.attributes["fg:x"].value;
+            params.y = el.attributes.y.value;
+            history.replaceState(null, null, parse_params(params));
+        }
+    }
+    else if (e.target.id == "unzoom") {
+        unzoom();
+
+        // remove zoom state
+        var params = get_params();
+        if (params.x) delete params.x;
+        if (params.y) delete params.y;
+        history.replaceState(null, null, parse_params(params));
+    }
+    else if (e.target.id == "search") search_prompt();
+}, false)
+// mouse-over for info
+// show
+window.addEventListener("mouseover", function(e) {
+    var target = find_group(e.target);
+    if (target) details.nodeValue = nametype + " " + g_to_text(target);
+}, false)
+// clear
+window.addEventListener("mouseout", function(e) {
+    var target = find_group(e.target);
+    if (target) details.nodeValue = ' ';
+}, false)
+// ctrl-F for search
+window.addEventListener("keydown",function (e) {
+    if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+        e.preventDefault();
+        search_prompt();
+    }
+}, false)
+// functions
+function get_params() {
+    var params = {};
+    var paramsarr = window.location.search.substr(1).split('&');
+    for (var i = 0; i < paramsarr.length; ++i) {
+        var tmp = paramsarr[i].split("=");
+        if (!tmp[0] || !tmp[1]) continue;
+        params[tmp[0]]  = decodeURIComponent(tmp[1]);
+    }
+    return params;
+}
+function parse_params(params) {
+    var uri = "?";
+    for (var key in params) {
+        uri += key + '=' + encodeURIComponent(params[key]) + '&';
+    }
+    if (uri.slice(-1) == "&")
+        uri = uri.substring(0, uri.length - 1);
+    if (uri == '?')
+        uri = window.location.href.split('?')[0];
+    return uri;
+}
+function find_child(node, selector) {
+    var children = node.querySelectorAll(selector);
+    if (children.length) return children[0];
+    return;
+}
+function find_group(node) {
+    var parent = node.parentElement;
+    if (!parent) return;
+    if (parent.id == "frames") return node;
+    return find_group(parent);
+}
+function orig_save(e, attr, val) {
+    if (e.attributes["fg:orig_" + attr] != undefined) return;
+    if (e.attributes[attr] == undefined) return;
+    if (val == undefined) val = e.attributes[attr].value;
+    e.setAttribute("fg:orig_" + attr, val);
+}
+function orig_load(e, attr) {
+    if (e.attributes["fg:orig_"+attr] == undefined) return;
+    e.attributes[attr].value = e.attributes["fg:orig_" + attr].value;
+    e.removeAttribute("fg:orig_" + attr);
+}
+function g_to_text(e) {
+    var text = find_child(e, "title").firstChild.nodeValue;
+    return (text)
+}
+function g_to_func(e) {
+    var func = g_to_text(e);
+    // if there's any manipulation we want to do to the function
+    // name before it's searched, do it here before returning.
+    return (func);
+}
+function get_monospace_width(frames) {
+    // Given the id="frames" element, return the width of text characters if
+    // this is a monospace font, otherwise return 0.
+    text = find_child(frames.children[0], "text");
+    originalContent = text.textContent;
+    text.textContent = "!";
+    bangWidth = text.getComputedTextLength();
+    text.textContent = "W";
+    wWidth = text.getComputedTextLength();
+    text.textContent = originalContent;
+    if (bangWidth === wWidth) {
+        return bangWidth;
+    } else {
+        return 0;
+    }
+}
+function update_text_for_elements(elements) {
+    // In order to render quickly in the browser, you want to do one pass of
+    // reading attributes, and one pass of mutating attributes. See
+    // https://web.dev/avoid-large-complex-layouts-and-layout-thrashing/ for details.
+
+    // Fall back to inefficient calculation, if we're variable-width font.
+    // TODO This should be optimized somehow too.
+    if (known_font_width === 0) {
+        for (var i = 0; i < elements.length; i++) {
+            update_text(elements[i]);
+        }
+        return;
+    }
+
+    var textElemNewAttributes = [];
+    for (var i = 0; i < elements.length; i++) {
+        var e = elements[i];
+        var r = find_child(e, "rect");
+        var t = find_child(e, "text");
+        var w = parseFloat(r.attributes.width.value) * frames.attributes.width.value / 100 - 3;
+        var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+        var newX = format_percent((parseFloat(r.attributes.x.value) + (100 * 3 / frames.attributes.width.value)));
+
+        // Smaller than this size won't fit anything
+        if (w < 2 * known_font_width) {
+            textElemNewAttributes.push([newX, ""]);
+            continue;
+        }
+
+        // Fit in full text width
+        if (txt.length * known_font_width < w) {
+            textElemNewAttributes.push([newX, txt]);
+            continue;
+        }
+
+        var substringLength = Math.floor(w / known_font_width) - 2;
+        if (truncate_text_right) {
+            // Truncate the right side of the text.
+            textElemNewAttributes.push([newX, txt.substring(0, substringLength) + ".."]);
+            continue;
+        } else {
+            // Truncate the left side of the text.
+            textElemNewAttributes.push([newX, ".." + txt.substring(txt.length - substringLength, txt.length)]);
+            continue;
+        }
+    }
+
+    console.assert(textElemNewAttributes.length === elements.length, "Resize failed, please file a bug at https://github.com/jonhoo/inferno/");
+
+    // Now that we know new textContent, set it all in one go so we don't refresh a bazillion times.
+    for (var i = 0; i < elements.length; i++) {
+        var e = elements[i];
+        var values = textElemNewAttributes[i];
+        var t = find_child(e, "text");
+        t.attributes.x.value = values[0];
+        t.textContent = values[1];
+    }
+}
+
+function update_text(e) {
+    var r = find_child(e, "rect");
+    var t = find_child(e, "text");
+    var w = parseFloat(r.attributes.width.value) * frames.attributes.width.value / 100 - 3;
+    var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+    t.attributes.x.value = format_percent((parseFloat(r.attributes.x.value) + (100 * 3 / frames.attributes.width.value)));
+
+    // Smaller than this size won't fit anything
+    if (w < 2 * fontsize * fontwidth) {
+        t.textContent = "";
+        return;
+    }
+    t.textContent = txt;
+    // Fit in full text width
+    if (t.getComputedTextLength() < w)
+        return;
+    if (truncate_text_right) {
+        // Truncate the right side of the text.
+        for (var x = txt.length - 2; x > 0; x--) {
+            if (t.getSubStringLength(0, x + 2) <= w) {
+                t.textContent = txt.substring(0, x) + "..";
+                return;
+            }
+        }
+    } else {
+        // Truncate the left side of the text.
+        for (var x = 2; x < txt.length; x++) {
+            if (t.getSubStringLength(x - 2, txt.length) <= w) {
+                t.textContent = ".." + txt.substring(x, txt.length);
+                return;
+            }
+        }
+    }
+    t.textContent = "";
+}
+// zoom
+function zoom_reset(e) {
+    if (e.tagName == "rect") {
+        e.attributes.x.value = format_percent(100 * parseInt(e.attributes["fg:x"].value) / total_samples);
+        e.attributes.width.value = format_percent(100 * parseInt(e.attributes["fg:w"].value) / total_samples);
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_reset(c[i]);
+    }
+}
+function zoom_child(e, x, zoomed_width_samples) {
+    if (e.tagName == "text") {
+        var parent_x = parseFloat(find_child(e.parentNode, "rect[x]").attributes.x.value);
+        e.attributes.x.value = format_percent(parent_x + (100 * 3 / frames.attributes.width.value));
+    } else if (e.tagName == "rect") {
+        e.attributes.x.value = format_percent(100 * (parseInt(e.attributes["fg:x"].value) - x) / zoomed_width_samples);
+        e.attributes.width.value = format_percent(100 * parseInt(e.attributes["fg:w"].value) / zoomed_width_samples);
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_child(c[i], x, zoomed_width_samples);
+    }
+}
+function zoom_parent(e) {
+    if (e.attributes) {
+        if (e.attributes.x != undefined) {
+            e.attributes.x.value = "0.0%";
+        }
+        if (e.attributes.width != undefined) {
+            e.attributes.width.value = "100.0%";
+        }
+    }
+    if (e.childNodes == undefined) return;
+    for(var i = 0, c = e.childNodes; i < c.length; i++) {
+        zoom_parent(c[i]);
+    }
+}
+function zoom(node) {
+    var attr = find_child(node, "rect").attributes;
+    var width = parseInt(attr["fg:w"].value);
+    var xmin = parseInt(attr["fg:x"].value);
+    var xmax = xmin + width;
+    var ymin = parseFloat(attr.y.value);
+    unzoombtn.classList.remove("hide");
+    var el = frames.children;
+    var to_update_text = [];
+    for (var i = 0; i < el.length; i++) {
+        var e = el[i];
+        var a = find_child(e, "rect").attributes;
+        var ex = parseInt(a["fg:x"].value);
+        var ew = parseInt(a["fg:w"].value);
+        // Is it an ancestor
+        if (!inverted) {
+            var upstack = parseFloat(a.y.value) > ymin;
+        } else {
+            var upstack = parseFloat(a.y.value) < ymin;
+        }
+        if (upstack) {
+            // Direct ancestor
+            if (ex <= xmin && (ex+ew) >= xmax) {
+                e.classList.add("parent");
+                zoom_parent(e);
+                to_update_text.push(e);
+            }
+            // not in current path
+            else
+                e.classList.add("hide");
+        }
+        // Children maybe
+        else {
+            // no common path
+            if (ex < xmin || ex >= xmax) {
+                e.classList.add("hide");
+            }
+            else {
+                zoom_child(e, xmin, width);
+                to_update_text.push(e);
+            }
+        }
+    }
+    update_text_for_elements(to_update_text);
+}
+function unzoom() {
+    unzoombtn.classList.add("hide");
+    var el = frames.children;
+    for(var i = 0; i < el.length; i++) {
+        el[i].classList.remove("parent");
+        el[i].classList.remove("hide");
+        zoom_reset(el[i]);
+    }
+    update_text_for_elements(el);
+}
+// search
+function reset_search() {
+    var el = document.querySelectorAll("#frames rect");
+    for (var i = 0; i < el.length; i++) {
+        orig_load(el[i], "fill")
+    }
+    var params = get_params();
+    delete params.s;
+    history.replaceState(null, null, parse_params(params));
+}
+function search_prompt() {
+    if (!searching) {
+        var term = prompt("Enter a search term (regexp " +
+            "allowed, eg: ^ext4_)", "");
+        if (term != null) {
+            search(term)
+        }
+    } else {
+        reset_search();
+        searching = 0;
+        searchbtn.classList.remove("show");
+        searchbtn.firstChild.nodeValue = "Search"
+        matchedtxt.classList.add("hide");
+        matchedtxt.firstChild.nodeValue = ""
+    }
+}
+function search(term) {
+    var re = new RegExp(term);
+    var el = frames.children;
+    var matches = new Object();
+    var maxwidth = 0;
+    for (var i = 0; i < el.length; i++) {
+        var e = el[i];
+        // Skip over frames which are either not visible, or below the zoomed-to frame
+        if (e.classList.contains("hide") || e.classList.contains("parent")) {
+            continue;
+        }
+        var func = g_to_func(e);
+        var rect = find_child(e, "rect");
+        if (func == null || rect == null)
+            continue;
+        // Save max width. Only works as we have a root frame
+        var w = parseInt(rect.attributes["fg:w"].value);
+        if (w > maxwidth)
+            maxwidth = w;
+        if (func.match(re)) {
+            // highlight
+            var x = parseInt(rect.attributes["fg:x"].value);
+            orig_save(rect, "fill");
+            rect.attributes.fill.value = searchcolor;
+            // remember matches
+            if (matches[x] == undefined) {
+                matches[x] = w;
+            } else {
+                if (w > matches[x]) {
+                    // overwrite with parent
+                    matches[x] = w;
+                }
+            }
+            searching = 1;
+        }
+    }
+    if (!searching)
+        return;
+    var params = get_params();
+    params.s = term;
+    history.replaceState(null, null, parse_params(params));
+
+    searchbtn.classList.add("show");
+    searchbtn.firstChild.nodeValue = "Reset Search";
+    // calculate percent matched, excluding vertical overlap
+    var count = 0;
+    var lastx = -1;
+    var lastw = 0;
+    var keys = Array();
+    for (k in matches) {
+        if (matches.hasOwnProperty(k))
+            keys.push(k);
+    }
+    // sort the matched frames by their x location
+    // ascending, then width descending
+    keys.sort(function(a, b){
+        return a - b;
+    });
+    // Step through frames saving only the biggest bottom-up frames
+    // thanks to the sort order. This relies on the tree property
+    // where children are always smaller than their parents.
+    for (var k in keys) {
+        var x = parseInt(keys[k]);
+        var w = matches[keys[k]];
+        if (x >= lastx + lastw) {
+            count += w;
+            lastx = x;
+            lastw = w;
+        }
+    }
+    // display matched percent
+    matchedtxt.classList.remove("hide");
+    var pct = 100 * count / maxwidth;
+    if (pct != 100) pct = pct.toFixed(1);
+    matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+}
+function format_percent(n) {
+    return n.toFixed(4) + "%";
+}
+]]></script>
+    <rect x="0" y="0" width="100%" height="940" fill="url(#background)"/>
+    <text id="title" fill="rgb(0,0,0)" x="50.0000%" y="32.00">Peak Tracked Memory Usage (130.9 MiB)</text>
+    <text id="subtitle" x="50.0000%" y="64.00">Made with the Fil profiler. <a href="https://pythonspeed.com/fil/" style="text-decoration: underline;" target="_parent">Try it on your code!</a></text>
+    <text id="details" fill="rgb(0,0,0)" x="10" y="84.00"> </text>
+    <text id="unzoom" class="hide" fill="rgb(0,0,0)" x="10" y="32.00">Reset Zoom</text>
+    <text id="search" fill="rgb(0,0,0)" x="1190" y="32.00">Search</text>
+    <text id="matched" fill="rgb(0,0,0)" x="1190" y="927.00"> </text>
+    <svg id="frames" x="10" width="1180" total_samples="136784579">
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/io/parsers/readers.py:1880 (_make_engine) (277,104 bytes, 0.20%)</title>
+            <rect x="0.0133%" y="474" width="0.2026%" height="21" fill="rgb(255,243,243)" fg:x="18232" fg:w="277104"/>
+            <text x="0.2633%" y="487.50"></text>
+        </g>
+        <g>
+            <title>            self.handles = get_handle( (277,104 bytes, 0.20%)</title>
+            <rect x="0.0133%" y="496" width="0.2026%" height="21" fill="rgb(255,243,243)" fg:x="18232" fg:w="277104"/>
+            <text x="0.2633%" y="509.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/io/parsers/readers.py:620 (_read) (828,549 bytes, 0.61%)</title>
+            <rect x="0.0133%" y="386" width="0.6057%" height="21" fill="rgb(255,238,238)" fg:x="18232" fg:w="828549"/>
+            <text x="0.2633%" y="399.50"></text>
+        </g>
+        <g>
+            <title>    parser = TextFileReader(filepath_or_buffer, **kwds) (828,549 bytes, 0.61%)</title>
+            <rect x="0.0133%" y="408" width="0.6057%" height="21" fill="rgb(255,238,238)" fg:x="18232" fg:w="828549"/>
+            <text x="0.2633%" y="421.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/io/parsers/readers.py:1620 (__init__) (828,549 bytes, 0.61%)</title>
+            <rect x="0.0133%" y="430" width="0.6057%" height="21" fill="rgb(255,238,238)" fg:x="18232" fg:w="828549"/>
+            <text x="0.2633%" y="443.50"></text>
+        </g>
+        <g>
+            <title>        self._engine = self._make_engine(f, self.engine) (828,549 bytes, 0.61%)</title>
+            <rect x="0.0133%" y="452" width="0.6057%" height="21" fill="rgb(255,238,238)" fg:x="18232" fg:w="828549"/>
+            <text x="0.2633%" y="465.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/io/parsers/readers.py:1898 (_make_engine) (551,445 bytes, 0.40%)</title>
+            <rect x="0.2159%" y="474" width="0.4031%" height="21" fill="rgb(255,240,240)" fg:x="295336" fg:w="551445"/>
+            <text x="0.4659%" y="487.50"></text>
+        </g>
+        <g>
+            <title>            return mapping[engine](f, **self.options) (551,445 bytes, 0.40%)</title>
+            <rect x="0.2159%" y="496" width="0.4031%" height="21" fill="rgb(255,240,240)" fg:x="295336" fg:w="551445"/>
+            <text x="0.4659%" y="509.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/io/parsers/c_parser_wrapper.py:93 (__init__) (551,445 bytes, 0.40%)</title>
+            <rect x="0.2159%" y="518" width="0.4031%" height="21" fill="rgb(255,240,240)" fg:x="295336" fg:w="551445"/>
+            <text x="0.4659%" y="531.50"></text>
+        </g>
+        <g>
+            <title>        self._reader = parsers.TextReader(src, **kwds) (551,445 bytes, 0.40%)</title>
+            <rect x="0.2159%" y="540" width="0.4031%" height="21" fill="rgb(255,240,240)" fg:x="295336" fg:w="551445"/>
+            <text x="0.4659%" y="553.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/io/parsers/readers.py:1934 (read) (500,192 bytes, 0.37%)</title>
+            <rect x="0.7073%" y="430" width="0.3657%" height="21" fill="rgb(255,241,241)" fg:x="967461" fg:w="500192"/>
+            <text x="0.9573%" y="443.50"></text>
+        </g>
+        <g>
+            <title>                    index = RangeIndex(self._currow, self._currow + new_rows) (500,192 bytes, 0.37%)</title>
+            <rect x="0.7073%" y="452" width="0.3657%" height="21" fill="rgb(255,241,241)" fg:x="967461" fg:w="500192"/>
+            <text x="0.9573%" y="465.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/construction.py:443 (dict_to_mgr) (567,584 bytes, 0.41%)</title>
+            <rect x="1.0730%" y="518" width="0.4149%" height="21" fill="rgb(255,240,240)" fg:x="1467653" fg:w="567584"/>
+            <text x="1.3230%" y="531.50"></text>
+        </g>
+        <g>
+            <title>        arrays = Series(data, index=columns, dtype=object) (567,584 bytes, 0.41%)</title>
+            <rect x="1.0730%" y="540" width="0.4149%" height="21" fill="rgb(255,240,240)" fg:x="1467653" fg:w="567584"/>
+            <text x="1.3230%" y="553.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/series.py:537 (__init__) (567,584 bytes, 0.41%)</title>
+            <rect x="1.0730%" y="562" width="0.4149%" height="21" fill="rgb(255,240,240)" fg:x="1467653" fg:w="567584"/>
+            <text x="1.3230%" y="575.50"></text>
+        </g>
+        <g>
+            <title>            data, index = self._init_dict(data, index, dtype) (567,584 bytes, 0.41%)</title>
+            <rect x="1.0730%" y="584" width="0.4149%" height="21" fill="rgb(255,240,240)" fg:x="1467653" fg:w="567584"/>
+            <text x="1.3230%" y="597.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/series.py:655 (_init_dict) (533,088 bytes, 0.39%)</title>
+            <rect x="1.0982%" y="606" width="0.3897%" height="21" fill="rgb(255,240,240)" fg:x="1502149" fg:w="533088"/>
+            <text x="1.3482%" y="619.50"></text>
+        </g>
+        <g>
+            <title>            s = s.reindex(index, copy=False) (533,088 bytes, 0.39%)</title>
+            <rect x="1.0982%" y="628" width="0.3897%" height="21" fill="rgb(255,240,240)" fg:x="1502149" fg:w="533088"/>
+            <text x="1.3482%" y="641.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/series.py:5164 (reindex) (533,088 bytes, 0.39%)</title>
+            <rect x="1.0982%" y="650" width="0.3897%" height="21" fill="rgb(255,240,240)" fg:x="1502149" fg:w="533088"/>
+            <text x="1.3482%" y="663.50"></text>
+        </g>
+        <g>
+            <title>        return super().reindex( (533,088 bytes, 0.39%)</title>
+            <rect x="1.0982%" y="672" width="0.3897%" height="21" fill="rgb(255,240,240)" fg:x="1502149" fg:w="533088"/>
+            <text x="1.3482%" y="685.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/generic.py:5622 (reindex) (533,088 bytes, 0.39%)</title>
+            <rect x="1.0982%" y="694" width="0.3897%" height="21" fill="rgb(255,240,240)" fg:x="1502149" fg:w="533088"/>
+            <text x="1.3482%" y="707.50"></text>
+        </g>
+        <g>
+            <title>            return self.copy(deep=copy) (533,088 bytes, 0.39%)</title>
+            <rect x="1.0982%" y="716" width="0.3897%" height="21" fill="rgb(255,240,240)" fg:x="1502149" fg:w="533088"/>
+            <text x="1.3482%" y="729.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/generic.py:6830 (copy) (533,088 bytes, 0.39%)</title>
+            <rect x="1.0982%" y="738" width="0.3897%" height="21" fill="rgb(255,240,240)" fg:x="1502149" fg:w="533088"/>
+            <text x="1.3482%" y="751.50"></text>
+        </g>
+        <g>
+            <title>        data = self._mgr.copy(deep=deep) (533,088 bytes, 0.39%)</title>
+            <rect x="1.0982%" y="760" width="0.3897%" height="21" fill="rgb(255,240,240)" fg:x="1502149" fg:w="533088"/>
+            <text x="1.3482%" y="773.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/managers.py:593 (copy) (533,088 bytes, 0.39%)</title>
+            <rect x="1.0982%" y="782" width="0.3897%" height="21" fill="rgb(255,240,240)" fg:x="1502149" fg:w="533088"/>
+            <text x="1.3482%" y="795.50"></text>
+        </g>
+        <g>
+            <title>        res = self.apply(&quot;copy&quot;, deep=deep) (533,088 bytes, 0.39%)</title>
+            <rect x="1.0982%" y="804" width="0.3897%" height="21" fill="rgb(255,240,240)" fg:x="1502149" fg:w="533088"/>
+            <text x="1.3482%" y="817.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/managers.py:363 (apply) (533,088 bytes, 0.39%)</title>
+            <rect x="1.0982%" y="826" width="0.3897%" height="21" fill="rgb(255,240,240)" fg:x="1502149" fg:w="533088"/>
+            <text x="1.3482%" y="839.50"></text>
+        </g>
+        <g>
+            <title>                applied = getattr(b, f)(**kwargs) (533,088 bytes, 0.39%)</title>
+            <rect x="1.0982%" y="848" width="0.3897%" height="21" fill="rgb(255,240,240)" fg:x="1502149" fg:w="533088"/>
+            <text x="1.3482%" y="861.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/academic/soprano/SBTPredictors/data_loader.py:11 (load_individual_instance) (2,170,005 bytes, 1.59%)</title>
+            <rect x="0.0133%" y="298" width="1.5864%" height="21" fill="rgb(255,231,231)" fg:x="18232" fg:w="2170005"/>
+            <text x="0.2633%" y="311.50"></text>
+        </g>
+        <g>
+            <title>    df = pd.read_csv(filename) (2,170,005 bytes, 1.59%)</title>
+            <rect x="0.0133%" y="320" width="1.5864%" height="21" fill="rgb(255,231,231)" fg:x="18232" fg:w="2170005"/>
+            <text x="0.2633%" y="333.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/io/parsers/readers.py:1026 (read_csv) (2,170,005 bytes, 1.59%)</title>
+            <rect x="0.0133%" y="342" width="1.5864%" height="21" fill="rgb(255,231,231)" fg:x="18232" fg:w="2170005"/>
+            <text x="0.2633%" y="355.50"></text>
+        </g>
+        <g>
+            <title>    return _read(filepath_or_buffer, kwds) (2,170,005 bytes, 1.59%)</title>
+            <rect x="0.0133%" y="364" width="1.5864%" height="21" fill="rgb(255,231,231)" fg:x="18232" fg:w="2170005"/>
+            <text x="0.2633%" y="377.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/io/parsers/readers.py:626 (_read) (1,341,456 bytes, 0.98%)</title>
+            <rect x="0.6191%" y="386" width="0.9807%" height="21" fill="rgb(255,235,235)" fg:x="846781" fg:w="1341456"/>
+            <text x="0.8691%" y="399.50"></text>
+        </g>
+        <g>
+            <title>        return parser.read(nrows) (1,341,456 bytes, 0.98%)</title>
+            <rect x="0.6191%" y="408" width="0.9807%" height="21" fill="rgb(255,235,235)" fg:x="846781" fg:w="1341456"/>
+            <text x="0.8691%" y="421.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/io/parsers/readers.py:1968 (read) (720,584 bytes, 0.53%)</title>
+            <rect x="1.0730%" y="430" width="0.5268%" height="21" fill="rgb(255,239,239)" fg:x="1467653" fg:w="720584"/>
+            <text x="1.3230%" y="443.50"></text>
+        </g>
+        <g>
+            <title>            df = DataFrame( (720,584 bytes, 0.53%)</title>
+            <rect x="1.0730%" y="452" width="0.5268%" height="21" fill="rgb(255,239,239)" fg:x="1467653" fg:w="720584"/>
+            <text x="1.3230%" y="465.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/frame.py:778 (__init__) (720,584 bytes, 0.53%)</title>
+            <rect x="1.0730%" y="474" width="0.5268%" height="21" fill="rgb(255,239,239)" fg:x="1467653" fg:w="720584"/>
+            <text x="1.3230%" y="487.50"></text>
+        </g>
+        <g>
+            <title>            mgr = dict_to_mgr(data, index, columns, dtype=dtype, copy=copy, typ=manager) (720,584 bytes, 0.53%)</title>
+            <rect x="1.0730%" y="496" width="0.5268%" height="21" fill="rgb(255,239,239)" fg:x="1467653" fg:w="720584"/>
+            <text x="1.3230%" y="509.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/managers.py:893 (take) (810,656 bytes, 0.59%)</title>
+            <rect x="1.5998%" y="474" width="0.5927%" height="21" fill="rgb(255,238,238)" fg:x="2188237" fg:w="810656"/>
+            <text x="1.8498%" y="487.50"></text>
+        </g>
+        <g>
+            <title>        new_labels = self.axes[axis].take(indexer) (810,656 bytes, 0.59%)</title>
+            <rect x="1.5998%" y="496" width="0.5927%" height="21" fill="rgb(255,238,238)" fg:x="2188237" fg:w="810656"/>
+            <text x="1.8498%" y="509.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/indexes/base.py:1181 (take) (603,680 bytes, 0.44%)</title>
+            <rect x="1.7511%" y="518" width="0.4413%" height="21" fill="rgb(255,240,240)" fg:x="2395213" fg:w="603680"/>
+            <text x="2.0011%" y="531.50"></text>
+        </g>
+        <g>
+            <title>        return self._constructor._simple_new(taken, name=self.name) (603,680 bytes, 0.44%)</title>
+            <rect x="1.7511%" y="540" width="0.4413%" height="21" fill="rgb(255,240,240)" fg:x="2395213" fg:w="603680"/>
+            <text x="2.0011%" y="553.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/array_algos/take.py:157 (_take_nd_ndarray) (20,973,312 bytes, 15.33%)</title>
+            <rect x="2.5076%" y="694" width="15.3331%" height="21" fill="rgb(255,191,191)" fg:x="3430037" fg:w="20973312"/>
+            <text x="2.7576%" y="707.50">/home/jharbin/pyt..</text>
+        </g>
+        <g>
+            <title>        out = np.empty(out_shape, dtype=dtype) (20,973,312 bytes, 15.33%)</title>
+            <rect x="2.5076%" y="716" width="15.3331%" height="21" fill="rgb(255,191,191)" fg:x="3430037" fg:w="20973312"/>
+            <text x="2.7576%" y="729.50">        out = np..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/blocks.py:1373 (take_nd) (21,283,776 bytes, 15.56%)</title>
+            <rect x="2.4194%" y="606" width="15.5601%" height="21" fill="rgb(255,190,190)" fg:x="3309301" fg:w="21283776"/>
+            <text x="2.6694%" y="619.50">/home/jharbin/pyt..</text>
+        </g>
+        <g>
+            <title>        new_values = algos.take_nd( (21,283,776 bytes, 15.56%)</title>
+            <rect x="2.4194%" y="628" width="15.5601%" height="21" fill="rgb(255,190,190)" fg:x="3309301" fg:w="21283776"/>
+            <text x="2.6694%" y="641.50">        new_valu..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/array_algos/take.py:117 (take_nd) (21,283,776 bytes, 15.56%)</title>
+            <rect x="2.4194%" y="650" width="15.5601%" height="21" fill="rgb(255,190,190)" fg:x="3309301" fg:w="21283776"/>
+            <text x="2.6694%" y="663.50">/home/jharbin/pyt..</text>
+        </g>
+        <g>
+            <title>    return _take_nd_ndarray(arr, indexer, axis, fill_value, allow_fill) (21,283,776 bytes, 15.56%)</title>
+            <rect x="2.4194%" y="672" width="15.5601%" height="21" fill="rgb(255,190,190)" fg:x="3309301" fg:w="21283776"/>
+            <text x="2.6694%" y="685.50">    return _take..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/managers.py:680 (reindex_indexer) (22,059,880 bytes, 16.13%)</title>
+            <rect x="2.1924%" y="518" width="16.1275%" height="21" fill="rgb(255,189,189)" fg:x="2998893" fg:w="22059880"/>
+            <text x="2.4424%" y="531.50">/home/jharbin/pyth..</text>
+        </g>
+        <g>
+            <title>            new_blocks = self._slice_take_blocks_ax0( (22,059,880 bytes, 16.13%)</title>
+            <rect x="2.1924%" y="540" width="16.1275%" height="21" fill="rgb(255,189,189)" fg:x="2998893" fg:w="22059880"/>
+            <text x="2.4424%" y="553.50">            new_b..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/managers.py:843 (_slice_take_blocks_ax0) (21,749,472 bytes, 15.90%)</title>
+            <rect x="2.4194%" y="562" width="15.9005%" height="21" fill="rgb(255,190,190)" fg:x="3309301" fg:w="21749472"/>
+            <text x="2.6694%" y="575.50">/home/jharbin/pyth..</text>
+        </g>
+        <g>
+            <title>                        nb = blk.take_nd(taker, axis=0, new_mgr_locs=mgr_locs) (21,749,472 bytes, 15.90%)</title>
+            <rect x="2.4194%" y="584" width="15.9005%" height="21" fill="rgb(255,190,190)" fg:x="3309301" fg:w="21749472"/>
+            <text x="2.6694%" y="597.50">                 ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/blocks.py:1391 (take_nd) (465,696 bytes, 0.34%)</title>
+            <rect x="17.9794%" y="606" width="0.3405%" height="21" fill="rgb(255,241,241)" fg:x="24593077" fg:w="465696"/>
+            <text x="18.2294%" y="619.50"></text>
+        </g>
+        <g>
+            <title>            return self.make_block_same_class(new_values, new_mgr_locs) (465,696 bytes, 0.34%)</title>
+            <rect x="17.9794%" y="628" width="0.3405%" height="21" fill="rgb(255,241,241)" fg:x="24593077" fg:w="465696"/>
+            <text x="18.2294%" y="641.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/blocks.py:308 (make_block_same_class) (465,696 bytes, 0.34%)</title>
+            <rect x="17.9794%" y="650" width="0.3405%" height="21" fill="rgb(255,241,241)" fg:x="24593077" fg:w="465696"/>
+            <text x="18.2294%" y="663.50"></text>
+        </g>
+        <g>
+            <title>        return type(self)(values, placement=placement, ndim=self.ndim, refs=refs) (465,696 bytes, 0.34%)</title>
+            <rect x="17.9794%" y="672" width="0.3405%" height="21" fill="rgb(255,241,241)" fg:x="24593077" fg:w="465696"/>
+            <text x="18.2294%" y="685.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/generic.py:4152 (take) (23,112,008 bytes, 16.90%)</title>
+            <rect x="1.5998%" y="430" width="16.8966%" height="21" fill="rgb(255,188,188)" fg:x="2188237" fg:w="23112008"/>
+            <text x="1.8498%" y="443.50">/home/jharbin/pytho..</text>
+        </g>
+        <g>
+            <title>        new_data = self._mgr.take( (23,112,008 bytes, 16.90%)</title>
+            <rect x="1.5998%" y="452" width="16.8966%" height="21" fill="rgb(255,188,188)" fg:x="2188237" fg:w="23112008"/>
+            <text x="1.8498%" y="465.50">        new_data =..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/managers.py:894 (take) (22,301,352 bytes, 16.30%)</title>
+            <rect x="2.1924%" y="474" width="16.3040%" height="21" fill="rgb(255,189,189)" fg:x="2998893" fg:w="22301352"/>
+            <text x="2.4424%" y="487.50">/home/jharbin/pyth..</text>
+        </g>
+        <g>
+            <title>        return self.reindex_indexer( (22,301,352 bytes, 16.30%)</title>
+            <rect x="2.1924%" y="496" width="16.3040%" height="21" fill="rgb(255,189,189)" fg:x="2998893" fg:w="22301352"/>
+            <text x="2.4424%" y="509.50">        return se..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/academic/soprano/SBTPredictors/data_loader.py:27 (create_combined_data) (25,869,429 bytes, 18.91%)</title>
+            <rect x="0.0000%" y="210" width="18.9125%" height="21" fill="rgb(255,184,184)" fg:x="0" fg:w="25869429"/>
+            <text x="0.2500%" y="223.50">/home/jharbin/academic..</text>
+        </g>
+        <g>
+            <title>    combined_data = list(combined_data_m) (25,869,429 bytes, 18.91%)</title>
+            <rect x="0.0000%" y="232" width="18.9125%" height="21" fill="rgb(255,184,184)" fg:x="0" fg:w="25869429"/>
+            <text x="0.2500%" y="245.50">    combined_data = l..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/academic/soprano/SBTPredictors/data_loader.py:26 (&lt;lambda&gt;) (25,851,197 bytes, 18.90%)</title>
+            <rect x="0.0133%" y="254" width="18.8992%" height="21" fill="rgb(255,184,184)" fg:x="18232" fg:w="25851197"/>
+            <text x="0.2633%" y="267.50">/home/jharbin/academic..</text>
+        </g>
+        <g>
+            <title>    combined_data_m = map(lambda file: load_individual_instance(base_dir + &quot;/&quot; + file, needed_columns), filenames) (25,851,197 bytes, 18.90%)</title>
+            <rect x="0.0133%" y="276" width="18.8992%" height="21" fill="rgb(255,184,184)" fg:x="18232" fg:w="25851197"/>
+            <text x="0.2633%" y="289.50">    combined_data_m =..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/academic/soprano/SBTPredictors/data_loader.py:16 (load_individual_instance) (23,681,192 bytes, 17.31%)</title>
+            <rect x="1.5998%" y="298" width="17.3128%" height="21" fill="rgb(255,187,187)" fg:x="2188237" fg:w="23681192"/>
+            <text x="1.8498%" y="311.50">/home/jharbin/academ..</text>
+        </g>
+        <g>
+            <title>    return df[needed_columns] (23,681,192 bytes, 17.31%)</title>
+            <rect x="1.5998%" y="320" width="17.3128%" height="21" fill="rgb(255,187,187)" fg:x="2188237" fg:w="23681192"/>
+            <text x="1.8498%" y="333.50">    return df[neede..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/frame.py:4122 (__getitem__) (23,681,192 bytes, 17.31%)</title>
+            <rect x="1.5998%" y="342" width="17.3128%" height="21" fill="rgb(255,187,187)" fg:x="2188237" fg:w="23681192"/>
+            <text x="1.8498%" y="355.50">/home/jharbin/python..</text>
+        </g>
+        <g>
+            <title>        data = self._take_with_is_copy(indexer, axis=1) (23,681,192 bytes, 17.31%)</title>
+            <rect x="1.5998%" y="364" width="17.3128%" height="21" fill="rgb(255,187,187)" fg:x="2188237" fg:w="23681192"/>
+            <text x="1.8498%" y="377.50">        data = self..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/generic.py:4172 (_take_with_is_copy) (23,681,192 bytes, 17.31%)</title>
+            <rect x="1.5998%" y="386" width="17.3128%" height="21" fill="rgb(255,187,187)" fg:x="2188237" fg:w="23681192"/>
+            <text x="1.8498%" y="399.50">/home/jharbin/python..</text>
+        </g>
+        <g>
+            <title>        result = self.take(indices=indices, axis=axis) (23,681,192 bytes, 17.31%)</title>
+            <rect x="1.5998%" y="408" width="17.3128%" height="21" fill="rgb(255,187,187)" fg:x="2188237" fg:w="23681192"/>
+            <text x="1.8498%" y="421.50">        result = se..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/generic.py:4157 (take) (569,184 bytes, 0.42%)</title>
+            <rect x="18.4964%" y="430" width="0.4161%" height="21" fill="rgb(255,240,240)" fg:x="25300245" fg:w="569184"/>
+            <text x="18.7464%" y="443.50"></text>
+        </g>
+        <g>
+            <title>        return self._constructor_from_mgr(new_data, axes=new_data.axes).__finalize__( (569,184 bytes, 0.42%)</title>
+            <rect x="18.4964%" y="452" width="0.4161%" height="21" fill="rgb(255,240,240)" fg:x="25300245" fg:w="569184"/>
+            <text x="18.7464%" y="465.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/frame.py:660 (_constructor_from_mgr) (569,184 bytes, 0.42%)</title>
+            <rect x="18.4964%" y="474" width="0.4161%" height="21" fill="rgb(255,240,240)" fg:x="25300245" fg:w="569184"/>
+            <text x="18.7464%" y="487.50"></text>
+        </g>
+        <g>
+            <title>        df = DataFrame._from_mgr(mgr, axes=axes) (569,184 bytes, 0.42%)</title>
+            <rect x="18.4964%" y="496" width="0.4161%" height="21" fill="rgb(255,240,240)" fg:x="25300245" fg:w="569184"/>
+            <text x="18.7464%" y="509.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/generic.py:357 (_from_mgr) (344,960 bytes, 0.25%)</title>
+            <rect x="18.6603%" y="518" width="0.2522%" height="21" fill="rgb(255,242,242)" fg:x="25524469" fg:w="344960"/>
+            <text x="18.9103%" y="531.50"></text>
+        </g>
+        <g>
+            <title>        NDFrame.__init__(obj, mgr) (344,960 bytes, 0.25%)</title>
+            <rect x="18.6603%" y="540" width="0.2522%" height="21" fill="rgb(255,242,242)" fg:x="25524469" fg:w="344960"/>
+            <text x="18.9103%" y="553.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/generic.py:283 (__init__) (344,960 bytes, 0.25%)</title>
+            <rect x="18.6603%" y="562" width="0.2522%" height="21" fill="rgb(255,242,242)" fg:x="25524469" fg:w="344960"/>
+            <text x="18.9103%" y="575.50"></text>
+        </g>
+        <g>
+            <title>        object.__setattr__(self, &quot;_flags&quot;, Flags(self, allows_duplicate_labels=True)) (344,960 bytes, 0.25%)</title>
+            <rect x="18.6603%" y="584" width="0.2522%" height="21" fill="rgb(255,242,242)" fg:x="25524469" fg:w="344960"/>
+            <text x="18.9103%" y="597.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/managers.py:1016 (iget) (827,208 bytes, 0.60%)</title>
+            <rect x="18.9622%" y="694" width="0.6048%" height="21" fill="rgb(255,238,238)" fg:x="25937357" fg:w="827208"/>
+            <text x="19.2122%" y="707.50"></text>
+        </g>
+        <g>
+            <title>        block = self.blocks[self.blknos[i]] (827,208 bytes, 0.60%)</title>
+            <rect x="18.9622%" y="716" width="0.6048%" height="21" fill="rgb(255,238,238)" fg:x="25937357" fg:w="827208"/>
+            <text x="19.2122%" y="729.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/managers.py:192 (blknos) (827,208 bytes, 0.60%)</title>
+            <rect x="18.9622%" y="738" width="0.6048%" height="21" fill="rgb(255,238,238)" fg:x="25937357" fg:w="827208"/>
+            <text x="19.2122%" y="751.50"></text>
+        </g>
+        <g>
+            <title>            self._rebuild_blknos_and_blklocs() (827,208 bytes, 0.60%)</title>
+            <rect x="18.9622%" y="760" width="0.6048%" height="21" fill="rgb(255,238,238)" fg:x="25937357" fg:w="827208"/>
+            <text x="19.2122%" y="773.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_series/_check.py:160 (_check_pddataframe_series) (1,240,216 bytes, 0.91%)</title>
+            <rect x="18.9125%" y="518" width="0.9067%" height="21" fill="rgb(255,235,235)" fg:x="25869429" fg:w="1240216"/>
+            <text x="19.1625%" y="531.50"></text>
+        </g>
+        <g>
+            <title>    if np.prod(obj.shape) &gt; 0 and isinstance(obj.iloc[0, 0], (pd.Series, pd.DataFrame)): (1,240,216 bytes, 0.91%)</title>
+            <rect x="18.9125%" y="540" width="0.9067%" height="21" fill="rgb(255,235,235)" fg:x="25869429" fg:w="1240216"/>
+            <text x="19.1625%" y="553.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/indexing.py:1183 (__getitem__) (1,172,288 bytes, 0.86%)</title>
+            <rect x="18.9622%" y="562" width="0.8570%" height="21" fill="rgb(255,236,236)" fg:x="25937357" fg:w="1172288"/>
+            <text x="19.2122%" y="575.50"></text>
+        </g>
+        <g>
+            <title>                return self.obj._get_value(*key, takeable=self._takeable) (1,172,288 bytes, 0.86%)</title>
+            <rect x="18.9622%" y="584" width="0.8570%" height="21" fill="rgb(255,236,236)" fg:x="25937357" fg:w="1172288"/>
+            <text x="19.2122%" y="597.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/frame.py:4216 (_get_value) (1,172,288 bytes, 0.86%)</title>
+            <rect x="18.9622%" y="606" width="0.8570%" height="21" fill="rgb(255,236,236)" fg:x="25937357" fg:w="1172288"/>
+            <text x="19.2122%" y="619.50"></text>
+        </g>
+        <g>
+            <title>            series = self._ixs(col, axis=1) (1,172,288 bytes, 0.86%)</title>
+            <rect x="18.9622%" y="628" width="0.8570%" height="21" fill="rgb(255,236,236)" fg:x="25937357" fg:w="1172288"/>
+            <text x="19.2122%" y="641.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/frame.py:4015 (_ixs) (1,172,288 bytes, 0.86%)</title>
+            <rect x="18.9622%" y="650" width="0.8570%" height="21" fill="rgb(255,236,236)" fg:x="25937357" fg:w="1172288"/>
+            <text x="19.2122%" y="663.50"></text>
+        </g>
+        <g>
+            <title>            col_mgr = self._mgr.iget(i) (1,172,288 bytes, 0.86%)</title>
+            <rect x="18.9622%" y="672" width="0.8570%" height="21" fill="rgb(255,236,236)" fg:x="25937357" fg:w="1172288"/>
+            <text x="19.2122%" y="685.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/managers.py:1021 (iget) (310,696 bytes, 0.23%)</title>
+            <rect x="19.5921%" y="694" width="0.2271%" height="21" fill="rgb(255,242,242)" fg:x="26798949" fg:w="310696"/>
+            <text x="19.8421%" y="707.50"></text>
+        </g>
+        <g>
+            <title>        nb = type(block)( (310,696 bytes, 0.23%)</title>
+            <rect x="19.5921%" y="716" width="0.2271%" height="21" fill="rgb(255,242,242)" fg:x="26798949" fg:w="310696"/>
+            <text x="19.8421%" y="729.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/managers.py:288 (get_dtypes) (586,432 bytes, 0.43%)</title>
+            <rect x="19.8192%" y="650" width="0.4287%" height="21" fill="rgb(255,240,240)" fg:x="27109645" fg:w="586432"/>
+            <text x="20.0692%" y="663.50"></text>
+        </g>
+        <g>
+            <title>        dtypes = np.array([blk.dtype for blk in self.blocks], dtype=object) (586,432 bytes, 0.43%)</title>
+            <rect x="19.8192%" y="672" width="0.4287%" height="21" fill="rgb(255,240,240)" fg:x="27109645" fg:w="586432"/>
+            <text x="20.0692%" y="685.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/generic.py:6479 (dtypes) (689,648 bytes, 0.50%)</title>
+            <rect x="19.8192%" y="606" width="0.5042%" height="21" fill="rgb(255,239,239)" fg:x="27109645" fg:w="689648"/>
+            <text x="20.0692%" y="619.50"></text>
+        </g>
+        <g>
+            <title>        data = self._mgr.get_dtypes() (689,648 bytes, 0.50%)</title>
+            <rect x="19.8192%" y="628" width="0.5042%" height="21" fill="rgb(255,239,239)" fg:x="27109645" fg:w="689648"/>
+            <text x="20.0692%" y="641.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_series/_check.py:175 (_check_pddataframe_series) (1,174,256 bytes, 0.86%)</title>
+            <rect x="19.8192%" y="518" width="0.8585%" height="21" fill="rgb(255,236,236)" fg:x="27109645" fg:w="1174256"/>
+            <text x="20.0692%" y="531.50"></text>
+        </g>
+        <g>
+            <title>        metadata[&quot;dtypekind_dfip&quot;] = _get_series_dtypekind(obj, &quot;pd.DataFrame&quot;) (1,174,256 bytes, 0.86%)</title>
+            <rect x="19.8192%" y="540" width="0.8585%" height="21" fill="rgb(255,236,236)" fg:x="27109645" fg:w="1174256"/>
+            <text x="20.0692%" y="553.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_dtypekind.py:117 (_get_series_dtypekind) (1,174,256 bytes, 0.86%)</title>
+            <rect x="19.8192%" y="562" width="0.8585%" height="21" fill="rgb(255,236,236)" fg:x="27109645" fg:w="1174256"/>
+            <text x="20.0692%" y="575.50"></text>
+        </g>
+        <g>
+            <title>        col_dtypes = obj.dtypes.to_list() (1,174,256 bytes, 0.86%)</title>
+            <rect x="19.8192%" y="584" width="0.8585%" height="21" fill="rgb(255,236,236)" fg:x="27109645" fg:w="1174256"/>
+            <text x="20.0692%" y="597.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/generic.py:6480 (dtypes) (484,608 bytes, 0.35%)</title>
+            <rect x="20.3234%" y="606" width="0.3543%" height="21" fill="rgb(255,241,241)" fg:x="27799293" fg:w="484608"/>
+            <text x="20.5734%" y="619.50"></text>
+        </g>
+        <g>
+            <title>        return self._constructor_sliced(data, index=self._info_axis, dtype=np.object_) (484,608 bytes, 0.35%)</title>
+            <rect x="20.3234%" y="628" width="0.3543%" height="21" fill="rgb(255,241,241)" fg:x="27799293" fg:w="484608"/>
+            <text x="20.5734%" y="641.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_series/_check.py:181 (_check_pddataframe_series) (799,056 bytes, 0.58%)</title>
+            <rect x="20.6777%" y="518" width="0.5842%" height="21" fill="rgb(255,238,238)" fg:x="28283901" fg:w="799056"/>
+            <text x="20.9277%" y="531.50"></text>
+        </g>
+        <g>
+            <title>    if not obj.columns.is_unique: (799,056 bytes, 0.58%)</title>
+            <rect x="20.6777%" y="540" width="0.5842%" height="21" fill="rgb(255,238,238)" fg:x="28283901" fg:w="799056"/>
+            <text x="20.9277%" y="553.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/indexes/base.py:2353 (is_unique) (799,056 bytes, 0.58%)</title>
+            <rect x="20.6777%" y="562" width="0.5842%" height="21" fill="rgb(255,238,238)" fg:x="28283901" fg:w="799056"/>
+            <text x="20.9277%" y="575.50"></text>
+        </g>
+        <g>
+            <title>        return self._engine.is_unique (799,056 bytes, 0.58%)</title>
+            <rect x="20.6777%" y="584" width="0.5842%" height="21" fill="rgb(255,238,238)" fg:x="28283901" fg:w="799056"/>
+            <text x="20.9277%" y="597.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/academic/soprano/SBTPredictors/predictor.py:108 (run_regression_or_classifier) (29,479,093 bytes, 21.55%)</title>
+            <rect x="0.0000%" y="166" width="21.5515%" height="21" fill="rgb(255,180,180)" fg:x="0" fg:w="29479093"/>
+            <text x="0.2500%" y="179.50">/home/jharbin/academic/so..</text>
+        </g>
+        <g>
+            <title>    train_data = data_loader.create_combined_data(base_dir, data_files_train, needed_columns) (29,479,093 bytes, 21.55%)</title>
+            <rect x="0.0000%" y="188" width="21.5515%" height="21" fill="rgb(255,180,180)" fg:x="0" fg:w="29479093"/>
+            <text x="0.2500%" y="201.50">    train_data = data_lo..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/academic/soprano/SBTPredictors/data_loader.py:28 (create_combined_data) (3,609,664 bytes, 2.64%)</title>
+            <rect x="18.9125%" y="210" width="2.6389%" height="21" fill="rgb(255,225,225)" fg:x="25869429" fg:w="3609664"/>
+            <text x="19.1625%" y="223.50">/..</text>
+        </g>
+        <g>
+            <title>    print(&quot;Check data: &quot;,check_raise(combined_data, mtype=&quot;df-list&quot;)) (3,609,664 bytes, 2.64%)</title>
+            <rect x="18.9125%" y="232" width="2.6389%" height="21" fill="rgb(255,225,225)" fg:x="25869429" fg:w="3609664"/>
+            <text x="19.1625%" y="245.50">..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_check.py:338 (check_raise) (3,609,664 bytes, 2.64%)</title>
+            <rect x="18.9125%" y="254" width="2.6389%" height="21" fill="rgb(255,225,225)" fg:x="25869429" fg:w="3609664"/>
+            <text x="19.1625%" y="267.50">/..</text>
+        </g>
+        <g>
+            <title>    valid, msg, _ = check_is_mtype( (3,609,664 bytes, 2.64%)</title>
+            <rect x="18.9125%" y="276" width="2.6389%" height="21" fill="rgb(255,225,225)" fg:x="25869429" fg:w="3609664"/>
+            <text x="19.1625%" y="289.50">..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_check.py:258 (check_is_mtype) (3,609,664 bytes, 2.64%)</title>
+            <rect x="18.9125%" y="298" width="2.6389%" height="21" fill="rgb(255,225,225)" fg:x="25869429" fg:w="3609664"/>
+            <text x="19.1625%" y="311.50">/..</text>
+        </g>
+        <g>
+            <title>        res = check_dict[key](obj, return_metadata=return_metadata, var_name=var_name) (3,609,664 bytes, 2.64%)</title>
+            <rect x="18.9125%" y="320" width="2.6389%" height="21" fill="rgb(255,225,225)" fg:x="25869429" fg:w="3609664"/>
+            <text x="19.1625%" y="333.50">..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_base/_base.py:68 (__call__) (3,609,664 bytes, 2.64%)</title>
+            <rect x="18.9125%" y="342" width="2.6389%" height="21" fill="rgb(255,225,225)" fg:x="25869429" fg:w="3609664"/>
+            <text x="19.1625%" y="355.50">/..</text>
+        </g>
+        <g>
+            <title>        return self.check(**kwargs) (3,609,664 bytes, 2.64%)</title>
+            <rect x="18.9125%" y="364" width="2.6389%" height="21" fill="rgb(255,225,225)" fg:x="25869429" fg:w="3609664"/>
+            <text x="19.1625%" y="377.50">..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_base/_base.py:150 (check) (3,609,664 bytes, 2.64%)</title>
+            <rect x="18.9125%" y="386" width="2.6389%" height="21" fill="rgb(255,225,225)" fg:x="25869429" fg:w="3609664"/>
+            <text x="19.1625%" y="399.50">/..</text>
+        </g>
+        <g>
+            <title>        check_res = self._check( (3,609,664 bytes, 2.64%)</title>
+            <rect x="18.9125%" y="408" width="2.6389%" height="21" fill="rgb(255,225,225)" fg:x="25869429" fg:w="3609664"/>
+            <text x="19.1625%" y="421.50">..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_panel/_check.py:189 (_check) (3,609,664 bytes, 2.64%)</title>
+            <rect x="18.9125%" y="430" width="2.6389%" height="21" fill="rgb(255,225,225)" fg:x="25869429" fg:w="3609664"/>
+            <text x="19.1625%" y="443.50">/..</text>
+        </g>
+        <g>
+            <title>        return _check_dflist_panel( (3,609,664 bytes, 2.64%)</title>
+            <rect x="18.9125%" y="452" width="2.6389%" height="21" fill="rgb(255,225,225)" fg:x="25869429" fg:w="3609664"/>
+            <text x="19.1625%" y="465.50">..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_panel/_check.py:208 (_check_dflist_panel) (3,609,664 bytes, 2.64%)</title>
+            <rect x="18.9125%" y="474" width="2.6389%" height="21" fill="rgb(255,225,225)" fg:x="25869429" fg:w="3609664"/>
+            <text x="19.1625%" y="487.50">/..</text>
+        </g>
+        <g>
+            <title>    check_res = [_check_pddataframe_series(s, return_metadata=True) for s in obj] (3,609,664 bytes, 2.64%)</title>
+            <rect x="18.9125%" y="496" width="2.6389%" height="21" fill="rgb(255,225,225)" fg:x="25869429" fg:w="3609664"/>
+            <text x="19.1625%" y="509.50">..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_series/_check.py:211 (_check_pddataframe_series) (396,136 bytes, 0.29%)</title>
+            <rect x="21.2619%" y="518" width="0.2896%" height="21" fill="rgb(255,241,241)" fg:x="29082957" fg:w="396136"/>
+            <text x="21.5119%" y="531.50"></text>
+        </g>
+        <g>
+            <title>        metadata[&quot;has_nans&quot;] = obj.isna().values.any() (396,136 bytes, 0.29%)</title>
+            <rect x="21.2619%" y="540" width="0.2896%" height="21" fill="rgb(255,241,241)" fg:x="29082957" fg:w="396136"/>
+            <text x="21.5119%" y="553.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/frame.py:6497 (isna) (396,136 bytes, 0.29%)</title>
+            <rect x="21.2619%" y="562" width="0.2896%" height="21" fill="rgb(255,241,241)" fg:x="29082957" fg:w="396136"/>
+            <text x="21.5119%" y="575.50"></text>
+        </g>
+        <g>
+            <title>        res_mgr = self._mgr.isna(func=isna) (396,136 bytes, 0.29%)</title>
+            <rect x="21.2619%" y="584" width="0.2896%" height="21" fill="rgb(255,241,241)" fg:x="29082957" fg:w="396136"/>
+            <text x="21.5119%" y="597.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/base.py:178 (isna) (396,136 bytes, 0.29%)</title>
+            <rect x="21.2619%" y="606" width="0.2896%" height="21" fill="rgb(255,241,241)" fg:x="29082957" fg:w="396136"/>
+            <text x="21.5119%" y="619.50"></text>
+        </g>
+        <g>
+            <title>        return self.apply(&quot;apply&quot;, func=func) (396,136 bytes, 0.29%)</title>
+            <rect x="21.2619%" y="628" width="0.2896%" height="21" fill="rgb(255,241,241)" fg:x="29082957" fg:w="396136"/>
+            <text x="21.5119%" y="641.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/managers.py:363 (apply) (396,136 bytes, 0.29%)</title>
+            <rect x="21.2619%" y="650" width="0.2896%" height="21" fill="rgb(255,241,241)" fg:x="29082957" fg:w="396136"/>
+            <text x="21.5119%" y="663.50"></text>
+        </g>
+        <g>
+            <title>                applied = getattr(b, f)(**kwargs) (396,136 bytes, 0.29%)</title>
+            <rect x="21.2619%" y="672" width="0.2896%" height="21" fill="rgb(255,241,241)" fg:x="29082957" fg:w="396136"/>
+            <text x="21.5119%" y="685.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/academic/soprano/SBTPredictors/data_loader.py:11 (load_individual_instance) (557,910 bytes, 0.41%)</title>
+            <rect x="21.5629%" y="298" width="0.4079%" height="21" fill="rgb(255,240,240)" fg:x="29494709" fg:w="557910"/>
+            <text x="21.8129%" y="311.50"></text>
+        </g>
+        <g>
+            <title>    df = pd.read_csv(filename) (557,910 bytes, 0.41%)</title>
+            <rect x="21.5629%" y="320" width="0.4079%" height="21" fill="rgb(255,240,240)" fg:x="29494709" fg:w="557910"/>
+            <text x="21.8129%" y="333.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/io/parsers/readers.py:1026 (read_csv) (557,910 bytes, 0.41%)</title>
+            <rect x="21.5629%" y="342" width="0.4079%" height="21" fill="rgb(255,240,240)" fg:x="29494709" fg:w="557910"/>
+            <text x="21.8129%" y="355.50"></text>
+        </g>
+        <g>
+            <title>    return _read(filepath_or_buffer, kwds) (557,910 bytes, 0.41%)</title>
+            <rect x="21.5629%" y="364" width="0.4079%" height="21" fill="rgb(255,240,240)" fg:x="29494709" fg:w="557910"/>
+            <text x="21.8129%" y="377.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/io/parsers/readers.py:626 (_read) (340,040 bytes, 0.25%)</title>
+            <rect x="21.7222%" y="386" width="0.2486%" height="21" fill="rgb(255,242,242)" fg:x="29712579" fg:w="340040"/>
+            <text x="21.9722%" y="399.50"></text>
+        </g>
+        <g>
+            <title>        return parser.read(nrows) (340,040 bytes, 0.25%)</title>
+            <rect x="21.7222%" y="408" width="0.2486%" height="21" fill="rgb(255,242,242)" fg:x="29712579" fg:w="340040"/>
+            <text x="21.9722%" y="421.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/array_algos/take.py:157 (_take_nd_ndarray) (5,233,472 bytes, 3.83%)</title>
+            <rect x="22.1910%" y="694" width="3.8261%" height="21" fill="rgb(255,220,220)" fg:x="30353843" fg:w="5233472"/>
+            <text x="22.4410%" y="707.50">/h..</text>
+        </g>
+        <g>
+            <title>        out = np.empty(out_shape, dtype=dtype) (5,233,472 bytes, 3.83%)</title>
+            <rect x="22.1910%" y="716" width="3.8261%" height="21" fill="rgb(255,220,220)" fg:x="30353843" fg:w="5233472"/>
+            <text x="22.4410%" y="729.50"> ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/blocks.py:1373 (take_nd) (5,310,944 bytes, 3.88%)</title>
+            <rect x="22.1690%" y="606" width="3.8827%" height="21" fill="rgb(255,220,220)" fg:x="30323715" fg:w="5310944"/>
+            <text x="22.4190%" y="619.50">/h..</text>
+        </g>
+        <g>
+            <title>        new_values = algos.take_nd( (5,310,944 bytes, 3.88%)</title>
+            <rect x="22.1690%" y="628" width="3.8827%" height="21" fill="rgb(255,220,220)" fg:x="30323715" fg:w="5310944"/>
+            <text x="22.4190%" y="641.50"> ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/array_algos/take.py:117 (take_nd) (5,310,944 bytes, 3.88%)</title>
+            <rect x="22.1690%" y="650" width="3.8827%" height="21" fill="rgb(255,220,220)" fg:x="30323715" fg:w="5310944"/>
+            <text x="22.4190%" y="663.50">/h..</text>
+        </g>
+        <g>
+            <title>    return _take_nd_ndarray(arr, indexer, axis, fill_value, allow_fill) (5,310,944 bytes, 3.88%)</title>
+            <rect x="22.1690%" y="672" width="3.8827%" height="21" fill="rgb(255,220,220)" fg:x="30323715" fg:w="5310944"/>
+            <text x="22.4190%" y="685.50"> ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/managers.py:680 (reindex_indexer) (5,504,568 bytes, 4.02%)</title>
+            <rect x="22.1124%" y="518" width="4.0243%" height="21" fill="rgb(255,219,219)" fg:x="30246299" fg:w="5504568"/>
+            <text x="22.3624%" y="531.50">/ho..</text>
+        </g>
+        <g>
+            <title>            new_blocks = self._slice_take_blocks_ax0( (5,504,568 bytes, 4.02%)</title>
+            <rect x="22.1124%" y="540" width="4.0243%" height="21" fill="rgb(255,219,219)" fg:x="30246299" fg:w="5504568"/>
+            <text x="22.3624%" y="553.50">  ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/managers.py:843 (_slice_take_blocks_ax0) (5,427,152 bytes, 3.97%)</title>
+            <rect x="22.1690%" y="562" width="3.9677%" height="21" fill="rgb(255,220,220)" fg:x="30323715" fg:w="5427152"/>
+            <text x="22.4190%" y="575.50">/ho..</text>
+        </g>
+        <g>
+            <title>                        nb = blk.take_nd(taker, axis=0, new_mgr_locs=mgr_locs) (5,427,152 bytes, 3.97%)</title>
+            <rect x="22.1690%" y="584" width="3.9677%" height="21" fill="rgb(255,220,220)" fg:x="30323715" fg:w="5427152"/>
+            <text x="22.4190%" y="597.50">  ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/generic.py:4152 (take) (5,758,504 bytes, 4.21%)</title>
+            <rect x="21.9708%" y="430" width="4.2099%" height="21" fill="rgb(255,219,219)" fg:x="30052619" fg:w="5758504"/>
+            <text x="22.2208%" y="443.50">/ho..</text>
+        </g>
+        <g>
+            <title>        new_data = self._mgr.take( (5,758,504 bytes, 4.21%)</title>
+            <rect x="21.9708%" y="452" width="4.2099%" height="21" fill="rgb(255,219,219)" fg:x="30052619" fg:w="5758504"/>
+            <text x="22.2208%" y="465.50">  ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/managers.py:894 (take) (5,564,824 bytes, 4.07%)</title>
+            <rect x="22.1124%" y="474" width="4.0683%" height="21" fill="rgb(255,219,219)" fg:x="30246299" fg:w="5564824"/>
+            <text x="22.3624%" y="487.50">/ho..</text>
+        </g>
+        <g>
+            <title>        return self.reindex_indexer( (5,564,824 bytes, 4.07%)</title>
+            <rect x="22.1124%" y="496" width="4.0683%" height="21" fill="rgb(255,219,219)" fg:x="30246299" fg:w="5564824"/>
+            <text x="22.3624%" y="509.50">  ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/academic/soprano/SBTPredictors/data_loader.py:27 (create_combined_data) (6,474,062 bytes, 4.73%)</title>
+            <rect x="21.5515%" y="210" width="4.7330%" height="21" fill="rgb(255,217,217)" fg:x="29479093" fg:w="6474062"/>
+            <text x="21.8015%" y="223.50">/hom..</text>
+        </g>
+        <g>
+            <title>    combined_data = list(combined_data_m) (6,474,062 bytes, 4.73%)</title>
+            <rect x="21.5515%" y="232" width="4.7330%" height="21" fill="rgb(255,217,217)" fg:x="29479093" fg:w="6474062"/>
+            <text x="21.8015%" y="245.50">   ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/academic/soprano/SBTPredictors/data_loader.py:26 (&lt;lambda&gt;) (6,474,062 bytes, 4.73%)</title>
+            <rect x="21.5515%" y="254" width="4.7330%" height="21" fill="rgb(255,217,217)" fg:x="29479093" fg:w="6474062"/>
+            <text x="21.8015%" y="267.50">/hom..</text>
+        </g>
+        <g>
+            <title>    combined_data_m = map(lambda file: load_individual_instance(base_dir + &quot;/&quot; + file, needed_columns), filenames) (6,474,062 bytes, 4.73%)</title>
+            <rect x="21.5515%" y="276" width="4.7330%" height="21" fill="rgb(255,217,217)" fg:x="29479093" fg:w="6474062"/>
+            <text x="21.8015%" y="289.50">   ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/academic/soprano/SBTPredictors/data_loader.py:16 (load_individual_instance) (5,900,536 bytes, 4.31%)</title>
+            <rect x="21.9708%" y="298" width="4.3137%" height="21" fill="rgb(255,218,218)" fg:x="30052619" fg:w="5900536"/>
+            <text x="22.2208%" y="311.50">/ho..</text>
+        </g>
+        <g>
+            <title>    return df[needed_columns] (5,900,536 bytes, 4.31%)</title>
+            <rect x="21.9708%" y="320" width="4.3137%" height="21" fill="rgb(255,218,218)" fg:x="30052619" fg:w="5900536"/>
+            <text x="22.2208%" y="333.50">  ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/frame.py:4122 (__getitem__) (5,900,536 bytes, 4.31%)</title>
+            <rect x="21.9708%" y="342" width="4.3137%" height="21" fill="rgb(255,218,218)" fg:x="30052619" fg:w="5900536"/>
+            <text x="22.2208%" y="355.50">/ho..</text>
+        </g>
+        <g>
+            <title>        data = self._take_with_is_copy(indexer, axis=1) (5,900,536 bytes, 4.31%)</title>
+            <rect x="21.9708%" y="364" width="4.3137%" height="21" fill="rgb(255,218,218)" fg:x="30052619" fg:w="5900536"/>
+            <text x="22.2208%" y="377.50">  ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/generic.py:4172 (_take_with_is_copy) (5,900,536 bytes, 4.31%)</title>
+            <rect x="21.9708%" y="386" width="4.3137%" height="21" fill="rgb(255,218,218)" fg:x="30052619" fg:w="5900536"/>
+            <text x="22.2208%" y="399.50">/ho..</text>
+        </g>
+        <g>
+            <title>        result = self.take(indices=indices, axis=axis) (5,900,536 bytes, 4.31%)</title>
+            <rect x="21.9708%" y="408" width="4.3137%" height="21" fill="rgb(255,218,218)" fg:x="30052619" fg:w="5900536"/>
+            <text x="22.2208%" y="421.50">  ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_series/_check.py:160 (_check_pddataframe_series) (275,360 bytes, 0.20%)</title>
+            <rect x="26.2845%" y="518" width="0.2013%" height="21" fill="rgb(255,243,243)" fg:x="35953155" fg:w="275360"/>
+            <text x="26.5345%" y="531.50"></text>
+        </g>
+        <g>
+            <title>    if np.prod(obj.shape) &gt; 0 and isinstance(obj.iloc[0, 0], (pd.Series, pd.DataFrame)): (275,360 bytes, 0.20%)</title>
+            <rect x="26.2845%" y="540" width="0.2013%" height="21" fill="rgb(255,243,243)" fg:x="35953155" fg:w="275360"/>
+            <text x="26.5345%" y="553.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/indexing.py:1183 (__getitem__) (275,360 bytes, 0.20%)</title>
+            <rect x="26.2845%" y="562" width="0.2013%" height="21" fill="rgb(255,243,243)" fg:x="35953155" fg:w="275360"/>
+            <text x="26.5345%" y="575.50"></text>
+        </g>
+        <g>
+            <title>                return self.obj._get_value(*key, takeable=self._takeable) (275,360 bytes, 0.20%)</title>
+            <rect x="26.2845%" y="584" width="0.2013%" height="21" fill="rgb(255,243,243)" fg:x="35953155" fg:w="275360"/>
+            <text x="26.5345%" y="597.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/frame.py:4216 (_get_value) (275,360 bytes, 0.20%)</title>
+            <rect x="26.2845%" y="606" width="0.2013%" height="21" fill="rgb(255,243,243)" fg:x="35953155" fg:w="275360"/>
+            <text x="26.5345%" y="619.50"></text>
+        </g>
+        <g>
+            <title>            series = self._ixs(col, axis=1) (275,360 bytes, 0.20%)</title>
+            <rect x="26.2845%" y="628" width="0.2013%" height="21" fill="rgb(255,243,243)" fg:x="35953155" fg:w="275360"/>
+            <text x="26.5345%" y="641.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/frame.py:4015 (_ixs) (275,360 bytes, 0.20%)</title>
+            <rect x="26.2845%" y="650" width="0.2013%" height="21" fill="rgb(255,243,243)" fg:x="35953155" fg:w="275360"/>
+            <text x="26.5345%" y="663.50"></text>
+        </g>
+        <g>
+            <title>            col_mgr = self._mgr.iget(i) (275,360 bytes, 0.20%)</title>
+            <rect x="26.2845%" y="672" width="0.2013%" height="21" fill="rgb(255,243,243)" fg:x="35953155" fg:w="275360"/>
+            <text x="26.5345%" y="685.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/academic/soprano/SBTPredictors/predictor.py:109 (run_regression_or_classifier) (7,309,582 bytes, 5.34%)</title>
+            <rect x="21.5515%" y="166" width="5.3439%" height="21" fill="rgb(255,215,215)" fg:x="29479093" fg:w="7309582"/>
+            <text x="21.8015%" y="179.50">/hom..</text>
+        </g>
+        <g>
+            <title>    test_data = data_loader.create_combined_data(base_dir, data_files_test, needed_columns) (7,309,582 bytes, 5.34%)</title>
+            <rect x="21.5515%" y="188" width="5.3439%" height="21" fill="rgb(255,215,215)" fg:x="29479093" fg:w="7309582"/>
+            <text x="21.8015%" y="201.50">   ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/academic/soprano/SBTPredictors/data_loader.py:28 (create_combined_data) (835,520 bytes, 0.61%)</title>
+            <rect x="26.2845%" y="210" width="0.6108%" height="21" fill="rgb(255,238,238)" fg:x="35953155" fg:w="835520"/>
+            <text x="26.5345%" y="223.50"></text>
+        </g>
+        <g>
+            <title>    print(&quot;Check data: &quot;,check_raise(combined_data, mtype=&quot;df-list&quot;)) (835,520 bytes, 0.61%)</title>
+            <rect x="26.2845%" y="232" width="0.6108%" height="21" fill="rgb(255,238,238)" fg:x="35953155" fg:w="835520"/>
+            <text x="26.5345%" y="245.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_check.py:338 (check_raise) (835,520 bytes, 0.61%)</title>
+            <rect x="26.2845%" y="254" width="0.6108%" height="21" fill="rgb(255,238,238)" fg:x="35953155" fg:w="835520"/>
+            <text x="26.5345%" y="267.50"></text>
+        </g>
+        <g>
+            <title>    valid, msg, _ = check_is_mtype( (835,520 bytes, 0.61%)</title>
+            <rect x="26.2845%" y="276" width="0.6108%" height="21" fill="rgb(255,238,238)" fg:x="35953155" fg:w="835520"/>
+            <text x="26.5345%" y="289.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_check.py:258 (check_is_mtype) (835,520 bytes, 0.61%)</title>
+            <rect x="26.2845%" y="298" width="0.6108%" height="21" fill="rgb(255,238,238)" fg:x="35953155" fg:w="835520"/>
+            <text x="26.5345%" y="311.50"></text>
+        </g>
+        <g>
+            <title>        res = check_dict[key](obj, return_metadata=return_metadata, var_name=var_name) (835,520 bytes, 0.61%)</title>
+            <rect x="26.2845%" y="320" width="0.6108%" height="21" fill="rgb(255,238,238)" fg:x="35953155" fg:w="835520"/>
+            <text x="26.5345%" y="333.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_base/_base.py:68 (__call__) (835,520 bytes, 0.61%)</title>
+            <rect x="26.2845%" y="342" width="0.6108%" height="21" fill="rgb(255,238,238)" fg:x="35953155" fg:w="835520"/>
+            <text x="26.5345%" y="355.50"></text>
+        </g>
+        <g>
+            <title>        return self.check(**kwargs) (835,520 bytes, 0.61%)</title>
+            <rect x="26.2845%" y="364" width="0.6108%" height="21" fill="rgb(255,238,238)" fg:x="35953155" fg:w="835520"/>
+            <text x="26.5345%" y="377.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_base/_base.py:150 (check) (835,520 bytes, 0.61%)</title>
+            <rect x="26.2845%" y="386" width="0.6108%" height="21" fill="rgb(255,238,238)" fg:x="35953155" fg:w="835520"/>
+            <text x="26.5345%" y="399.50"></text>
+        </g>
+        <g>
+            <title>        check_res = self._check( (835,520 bytes, 0.61%)</title>
+            <rect x="26.2845%" y="408" width="0.6108%" height="21" fill="rgb(255,238,238)" fg:x="35953155" fg:w="835520"/>
+            <text x="26.5345%" y="421.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_panel/_check.py:189 (_check) (835,520 bytes, 0.61%)</title>
+            <rect x="26.2845%" y="430" width="0.6108%" height="21" fill="rgb(255,238,238)" fg:x="35953155" fg:w="835520"/>
+            <text x="26.5345%" y="443.50"></text>
+        </g>
+        <g>
+            <title>        return _check_dflist_panel( (835,520 bytes, 0.61%)</title>
+            <rect x="26.2845%" y="452" width="0.6108%" height="21" fill="rgb(255,238,238)" fg:x="35953155" fg:w="835520"/>
+            <text x="26.5345%" y="465.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_panel/_check.py:208 (_check_dflist_panel) (835,520 bytes, 0.61%)</title>
+            <rect x="26.2845%" y="474" width="0.6108%" height="21" fill="rgb(255,238,238)" fg:x="35953155" fg:w="835520"/>
+            <text x="26.5345%" y="487.50"></text>
+        </g>
+        <g>
+            <title>    check_res = [_check_pddataframe_series(s, return_metadata=True) for s in obj] (835,520 bytes, 0.61%)</title>
+            <rect x="26.2845%" y="496" width="0.6108%" height="21" fill="rgb(255,238,238)" fg:x="35953155" fg:w="835520"/>
+            <text x="26.5345%" y="509.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/reshape/concat.py:671 (get_result) (2,749,304 bytes, 2.01%)</title>
+            <rect x="27.0595%" y="430" width="2.0100%" height="21" fill="rgb(255,228,228)" fg:x="37013275" fg:w="2749304"/>
+            <text x="27.3095%" y="443.50"></text>
+        </g>
+        <g>
+            <title>                for ax, new_labels in enumerate(self.new_axes): (2,749,304 bytes, 2.01%)</title>
+            <rect x="27.0595%" y="452" width="2.0100%" height="21" fill="rgb(255,228,228)" fg:x="37013275" fg:w="2749304"/>
+            <text x="27.3095%" y="465.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/reshape/concat.py:703 (new_axes) (2,749,304 bytes, 2.01%)</title>
+            <rect x="27.0595%" y="474" width="2.0100%" height="21" fill="rgb(255,228,228)" fg:x="37013275" fg:w="2749304"/>
+            <text x="27.3095%" y="487.50"></text>
+        </g>
+        <g>
+            <title>            self._get_concat_axis if i == self.bm_axis else self._get_comb_axis(i) (2,749,304 bytes, 2.01%)</title>
+            <rect x="27.0595%" y="496" width="2.0100%" height="21" fill="rgb(255,228,228)" fg:x="37013275" fg:w="2749304"/>
+            <text x="27.3095%" y="509.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/reshape/concat.py:762 (_get_concat_axis) (2,653,544 bytes, 1.94%)</title>
+            <rect x="27.1295%" y="518" width="1.9399%" height="21" fill="rgb(255,229,229)" fg:x="37109035" fg:w="2653544"/>
+            <text x="27.3795%" y="531.50"></text>
+        </g>
+        <g>
+            <title>            concat_axis = _make_concat_multiindex( (2,653,544 bytes, 1.94%)</title>
+            <rect x="27.1295%" y="540" width="1.9399%" height="21" fill="rgb(255,229,229)" fg:x="37109035" fg:w="2653544"/>
+            <text x="27.3795%" y="553.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/reshape/concat.py:892 (_make_concat_multiindex) (2,587,408 bytes, 1.89%)</title>
+            <rect x="27.1779%" y="562" width="1.8916%" height="21" fill="rgb(255,229,229)" fg:x="37175171" fg:w="2587408"/>
+            <text x="27.4279%" y="575.50"></text>
+        </g>
+        <g>
+            <title>    return MultiIndex( (2,587,408 bytes, 1.89%)</title>
+            <rect x="27.1779%" y="584" width="1.8916%" height="21" fill="rgb(255,229,229)" fg:x="37175171" fg:w="2587408"/>
+            <text x="27.4279%" y="597.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/indexes/multi.py:352 (__new__) (2,587,408 bytes, 1.89%)</title>
+            <rect x="27.1779%" y="606" width="1.8916%" height="21" fill="rgb(255,229,229)" fg:x="37175171" fg:w="2587408"/>
+            <text x="27.4279%" y="619.50"></text>
+        </g>
+        <g>
+            <title>        result._set_codes(codes, copy=copy, validate=False) (2,587,408 bytes, 1.89%)</title>
+            <rect x="27.1779%" y="628" width="1.8916%" height="21" fill="rgb(255,229,229)" fg:x="37175171" fg:w="2587408"/>
+            <text x="27.4279%" y="641.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/indexes/multi.py:1103 (_set_codes) (2,587,408 bytes, 1.89%)</title>
+            <rect x="27.1779%" y="650" width="1.8916%" height="21" fill="rgb(255,229,229)" fg:x="37175171" fg:w="2587408"/>
+            <text x="27.4279%" y="663.50"></text>
+        </g>
+        <g>
+            <title>            new_codes = FrozenList( (2,587,408 bytes, 1.89%)</title>
+            <rect x="27.1779%" y="672" width="1.8916%" height="21" fill="rgb(255,229,229)" fg:x="37175171" fg:w="2587408"/>
+            <text x="27.4279%" y="685.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/indexes/multi.py:1104 (&lt;genexpr&gt;) (2,587,408 bytes, 1.89%)</title>
+            <rect x="27.1779%" y="694" width="1.8916%" height="21" fill="rgb(255,229,229)" fg:x="37175171" fg:w="2587408"/>
+            <text x="27.4279%" y="707.50"></text>
+        </g>
+        <g>
+            <title>                _coerce_indexer_frozen(level_codes, lev, copy=copy).view() (2,587,408 bytes, 1.89%)</title>
+            <rect x="27.1779%" y="716" width="1.8916%" height="21" fill="rgb(255,229,229)" fg:x="37175171" fg:w="2587408"/>
+            <text x="27.4279%" y="729.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/indexes/multi.py:4155 (_coerce_indexer_frozen) (2,587,408 bytes, 1.89%)</title>
+            <rect x="27.1779%" y="738" width="1.8916%" height="21" fill="rgb(255,229,229)" fg:x="37175171" fg:w="2587408"/>
+            <text x="27.4279%" y="751.50"></text>
+        </g>
+        <g>
+            <title>    array_like = coerce_indexer_dtype(array_like, categories) (2,587,408 bytes, 1.89%)</title>
+            <rect x="27.1779%" y="760" width="1.8916%" height="21" fill="rgb(255,229,229)" fg:x="37175171" fg:w="2587408"/>
+            <text x="27.4279%" y="773.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/dtypes/cast.py:978 (coerce_indexer_dtype) (2,587,408 bytes, 1.89%)</title>
+            <rect x="27.1779%" y="782" width="1.8916%" height="21" fill="rgb(255,229,229)" fg:x="37175171" fg:w="2587408"/>
+            <text x="27.4279%" y="795.50"></text>
+        </g>
+        <g>
+            <title>        return ensure_int16(indexer) (2,587,408 bytes, 1.89%)</title>
+            <rect x="27.1779%" y="804" width="1.8916%" height="21" fill="rgb(255,229,229)" fg:x="37175171" fg:w="2587408"/>
+            <text x="27.4279%" y="817.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/regression/base.py:247 (fit) (23,464,576 bytes, 17.15%)</title>
+            <rect x="27.0468%" y="210" width="17.1544%" height="21" fill="rgb(255,187,187)" fg:x="36995859" fg:w="23464576"/>
+            <text x="27.2968%" y="223.50">/home/jharbin/pytho..</text>
+        </g>
+        <g>
+            <title>        X = self._convert_X(X, X_mtype) (23,464,576 bytes, 17.15%)</title>
+            <rect x="27.0468%" y="232" width="17.1544%" height="21" fill="rgb(255,187,187)" fg:x="36995859" fg:w="23464576"/>
+            <text x="27.2968%" y="245.50">        X = self._..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/base/_base_panel.py:329 (_convert_X) (23,464,576 bytes, 17.15%)</title>
+            <rect x="27.0468%" y="254" width="17.1544%" height="21" fill="rgb(255,187,187)" fg:x="36995859" fg:w="23464576"/>
+            <text x="27.2968%" y="267.50">/home/jharbin/pytho..</text>
+        </g>
+        <g>
+            <title>        X = convert( (23,464,576 bytes, 17.15%)</title>
+            <rect x="27.0468%" y="276" width="17.1544%" height="21" fill="rgb(255,187,187)" fg:x="36995859" fg:w="23464576"/>
+            <text x="27.2968%" y="289.50">        X = conver..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_convert.py:187 (convert) (23,464,576 bytes, 17.15%)</title>
+            <rect x="27.0468%" y="298" width="17.1544%" height="21" fill="rgb(255,187,187)" fg:x="36995859" fg:w="23464576"/>
+            <text x="27.2968%" y="311.50">/home/jharbin/pytho..</text>
+        </g>
+        <g>
+            <title>    converted_obj = convert_dict[key](obj, store=store) (23,464,576 bytes, 17.15%)</title>
+            <rect x="27.0468%" y="320" width="17.1544%" height="21" fill="rgb(255,187,187)" fg:x="36995859" fg:w="23464576"/>
+            <text x="27.2968%" y="333.50">    converted_obj ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_panel/_convert.py:993 (from_dflist_to_multiindex) (23,464,576 bytes, 17.15%)</title>
+            <rect x="27.0468%" y="342" width="17.1544%" height="21" fill="rgb(255,187,187)" fg:x="36995859" fg:w="23464576"/>
+            <text x="27.2968%" y="355.50">/home/jharbin/pytho..</text>
+        </g>
+        <g>
+            <title>    mi = pd.concat(obj, axis=0, keys=range(n), names=[&quot;instances&quot;, &quot;timepoints&quot;]) (23,464,576 bytes, 17.15%)</title>
+            <rect x="27.0468%" y="364" width="17.1544%" height="21" fill="rgb(255,187,187)" fg:x="36995859" fg:w="23464576"/>
+            <text x="27.2968%" y="377.50">    mi = pd.concat..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/reshape/concat.py:395 (concat) (23,447,160 bytes, 17.14%)</title>
+            <rect x="27.0595%" y="386" width="17.1417%" height="21" fill="rgb(255,187,187)" fg:x="37013275" fg:w="23447160"/>
+            <text x="27.3095%" y="399.50">/home/jharbin/pytho..</text>
+        </g>
+        <g>
+            <title>    return op.get_result() (23,447,160 bytes, 17.14%)</title>
+            <rect x="27.0595%" y="408" width="17.1417%" height="21" fill="rgb(255,187,187)" fg:x="37013275" fg:w="23447160"/>
+            <text x="27.3095%" y="421.50">    return op.get_..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/reshape/concat.py:684 (get_result) (20,697,856 bytes, 15.13%)</title>
+            <rect x="29.0695%" y="430" width="15.1317%" height="21" fill="rgb(255,191,191)" fg:x="39762579" fg:w="20697856"/>
+            <text x="29.3195%" y="443.50">/home/jharbin/pyt..</text>
+        </g>
+        <g>
+            <title>            new_data = concatenate_managers( (20,697,856 bytes, 15.13%)</title>
+            <rect x="29.0695%" y="452" width="15.1317%" height="21" fill="rgb(255,191,191)" fg:x="39762579" fg:w="20697856"/>
+            <text x="29.3195%" y="465.50">            new_..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/concat.py:146 (concatenate_managers) (20,697,856 bytes, 15.13%)</title>
+            <rect x="29.0695%" y="474" width="15.1317%" height="21" fill="rgb(255,191,191)" fg:x="39762579" fg:w="20697856"/>
+            <text x="29.3195%" y="487.50">/home/jharbin/pyt..</text>
+        </g>
+        <g>
+            <title>                nb = _concat_homogeneous_fastpath(mgrs_indexers, shape, first_dtype) (20,697,856 bytes, 15.13%)</title>
+            <rect x="29.0695%" y="496" width="15.1317%" height="21" fill="rgb(255,191,191)" fg:x="39762579" fg:w="20697856"/>
+            <text x="29.3195%" y="509.50">                ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/concat.py:262 (_concat_homogeneous_fastpath) (20,697,856 bytes, 15.13%)</title>
+            <rect x="29.0695%" y="518" width="15.1317%" height="21" fill="rgb(255,191,191)" fg:x="39762579" fg:w="20697856"/>
+            <text x="29.3195%" y="531.50">/home/jharbin/pyt..</text>
+        </g>
+        <g>
+            <title>        arr = np.concatenate(arrs).T (20,697,856 bytes, 15.13%)</title>
+            <rect x="29.0695%" y="540" width="15.1317%" height="21" fill="rgb(255,191,191)" fg:x="39762579" fg:w="20697856"/>
+            <text x="29.3195%" y="553.50">        arr = np..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/transformations/base.py:496 (fit) (29,070,072 bytes, 21.25%)</title>
+            <rect x="44.2012%" y="474" width="21.2524%" height="21" fill="rgb(255,180,180)" fg:x="60460435" fg:w="29070072"/>
+            <text x="44.4512%" y="487.50">/home/jharbin/python-venv..</text>
+        </g>
+        <g>
+            <title>        X_inner, y_inner = self._check_X_y(X=X, y=y) (29,070,072 bytes, 21.25%)</title>
+            <rect x="44.2012%" y="496" width="21.2524%" height="21" fill="rgb(255,180,180)" fg:x="60460435" fg:w="29070072"/>
+            <text x="44.4512%" y="509.50">        X_inner, y_inner..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/transformations/base.py:1214 (_check_X_y) (28,976,736 bytes, 21.18%)</title>
+            <rect x="44.2694%" y="518" width="21.1842%" height="21" fill="rgb(255,181,181)" fg:x="60553771" fg:w="28976736"/>
+            <text x="44.5194%" y="531.50">/home/jharbin/python-ven..</text>
+        </g>
+        <g>
+            <title>            X_inner = convert( (28,976,736 bytes, 21.18%)</title>
+            <rect x="44.2694%" y="540" width="21.1842%" height="21" fill="rgb(255,181,181)" fg:x="60553771" fg:w="28976736"/>
+            <text x="44.5194%" y="553.50">            X_inner = c..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_convert.py:187 (convert) (28,976,736 bytes, 21.18%)</title>
+            <rect x="44.2694%" y="562" width="21.1842%" height="21" fill="rgb(255,181,181)" fg:x="60553771" fg:w="28976736"/>
+            <text x="44.5194%" y="575.50">/home/jharbin/python-ven..</text>
+        </g>
+        <g>
+            <title>    converted_obj = convert_dict[key](obj, store=store) (28,976,736 bytes, 21.18%)</title>
+            <rect x="44.2694%" y="584" width="21.1842%" height="21" fill="rgb(255,181,181)" fg:x="60553771" fg:w="28976736"/>
+            <text x="44.5194%" y="597.50">    converted_obj = con..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_series/_convert.py:129 (convert_MvS_to_np_as_Series) (28,976,736 bytes, 21.18%)</title>
+            <rect x="44.2694%" y="606" width="21.1842%" height="21" fill="rgb(255,181,181)" fg:x="60553771" fg:w="28976736"/>
+            <text x="44.5194%" y="619.50">/home/jharbin/python-ven..</text>
+        </g>
+        <g>
+            <title>    return obj.to_numpy(dtype=&quot;float&quot;) (28,976,736 bytes, 21.18%)</title>
+            <rect x="44.2694%" y="628" width="21.1842%" height="21" fill="rgb(255,181,181)" fg:x="60553771" fg:w="28976736"/>
+            <text x="44.5194%" y="641.50">    return obj.to_numpy..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/frame.py:1998 (to_numpy) (28,976,736 bytes, 21.18%)</title>
+            <rect x="44.2694%" y="650" width="21.1842%" height="21" fill="rgb(255,181,181)" fg:x="60553771" fg:w="28976736"/>
+            <text x="44.5194%" y="663.50">/home/jharbin/python-ven..</text>
+        </g>
+        <g>
+            <title>        result = self._mgr.as_array(dtype=dtype, copy=copy, na_value=na_value) (28,976,736 bytes, 21.18%)</title>
+            <rect x="44.2694%" y="672" width="21.1842%" height="21" fill="rgb(255,181,181)" fg:x="60553771" fg:w="28976736"/>
+            <text x="44.5194%" y="685.50">        result = self._..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/managers.py:1694 (as_array) (28,976,736 bytes, 21.18%)</title>
+            <rect x="44.2694%" y="694" width="21.1842%" height="21" fill="rgb(255,181,181)" fg:x="60553771" fg:w="28976736"/>
+            <text x="44.5194%" y="707.50">/home/jharbin/python-ven..</text>
+        </g>
+        <g>
+            <title>            arr = self._interleave(dtype=dtype, na_value=na_value) (28,976,736 bytes, 21.18%)</title>
+            <rect x="44.2694%" y="716" width="21.1842%" height="21" fill="rgb(255,181,181)" fg:x="60553771" fg:w="28976736"/>
+            <text x="44.5194%" y="729.50">            arr = self...</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/managers.py:1727 (_interleave) (28,976,736 bytes, 21.18%)</title>
+            <rect x="44.2694%" y="738" width="21.1842%" height="21" fill="rgb(255,181,181)" fg:x="60553771" fg:w="28976736"/>
+            <text x="44.5194%" y="751.50">/home/jharbin/python-ven..</text>
+        </g>
+        <g>
+            <title>        result = np.empty(self.shape, dtype=dtype) (28,976,736 bytes, 21.18%)</title>
+            <rect x="44.2694%" y="760" width="21.1842%" height="21" fill="rgb(255,181,181)" fg:x="60553771" fg:w="28976736"/>
+            <text x="44.5194%" y="773.50">        result = np.emp..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sklearn/utils/extmath.py:1123 (_incremental_mean_and_var) (3,622,176 bytes, 2.65%)</title>
+            <rect x="65.4537%" y="694" width="2.6481%" height="21" fill="rgb(255,225,225)" fg:x="89530507" fg:w="3622176"/>
+            <text x="65.7037%" y="707.50">/..</text>
+        </g>
+        <g>
+            <title>    X_nan_mask = np.isnan(X) (3,622,176 bytes, 2.65%)</title>
+            <rect x="65.4537%" y="716" width="2.6481%" height="21" fill="rgb(255,225,225)" fg:x="89530507" fg:w="3622176"/>
+            <text x="65.7037%" y="729.50">..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sklearn/utils/extmath.py:1150 (_incremental_mean_and_var) (28,976,736 bytes, 21.18%)</title>
+            <rect x="68.1117%" y="694" width="21.1842%" height="21" fill="rgb(255,181,181)" fg:x="93166267" fg:w="28976736"/>
+            <text x="68.3617%" y="707.50">/home/jharbin/python-ven..</text>
+        </g>
+        <g>
+            <title>        temp = X - T (28,976,736 bytes, 21.18%)</title>
+            <rect x="68.1117%" y="716" width="21.1842%" height="21" fill="rgb(255,181,181)" fg:x="93166267" fg:w="28976736"/>
+            <text x="68.3617%" y="729.50">        temp = X - T..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/transformations/base.py:513 (fit) (32,666,688 bytes, 23.88%)</title>
+            <rect x="65.4537%" y="474" width="23.8819%" height="21" fill="rgb(255,176,176)" fg:x="89530507" fg:w="32666688"/>
+            <text x="65.7037%" y="487.50">/home/jharbin/python-venvs/t..</text>
+        </g>
+        <g>
+            <title>            self._fit(X=X_inner, y=y_inner) (32,666,688 bytes, 23.88%)</title>
+            <rect x="65.4537%" y="496" width="23.8819%" height="21" fill="rgb(255,176,176)" fg:x="89530507" fg:w="32666688"/>
+            <text x="65.7037%" y="509.50">            self._fit(X=X_i..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/transformations/series/adapt.py:336 (_fit) (32,666,688 bytes, 23.88%)</title>
+            <rect x="65.4537%" y="518" width="23.8819%" height="21" fill="rgb(255,176,176)" fg:x="89530507" fg:w="32666688"/>
+            <text x="65.7037%" y="531.50">/home/jharbin/python-venvs/t..</text>
+        </g>
+        <g>
+            <title>            self.transformer_.fit(**fit_args) (32,666,688 bytes, 23.88%)</title>
+            <rect x="65.4537%" y="540" width="23.8819%" height="21" fill="rgb(255,176,176)" fg:x="89530507" fg:w="32666688"/>
+            <text x="65.7037%" y="553.50">            self.transforme..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sklearn/preprocessing/_data.py:907 (fit) (32,666,688 bytes, 23.88%)</title>
+            <rect x="65.4537%" y="562" width="23.8819%" height="21" fill="rgb(255,176,176)" fg:x="89530507" fg:w="32666688"/>
+            <text x="65.7037%" y="575.50">/home/jharbin/python-venvs/t..</text>
+        </g>
+        <g>
+            <title>        return self.partial_fit(X, y, sample_weight) (32,666,688 bytes, 23.88%)</title>
+            <rect x="65.4537%" y="584" width="23.8819%" height="21" fill="rgb(255,176,176)" fg:x="89530507" fg:w="32666688"/>
+            <text x="65.7037%" y="597.50">        return self.partial..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sklearn/base.py:1363 (wrapper) (32,666,688 bytes, 23.88%)</title>
+            <rect x="65.4537%" y="606" width="23.8819%" height="21" fill="rgb(255,176,176)" fg:x="89530507" fg:w="32666688"/>
+            <text x="65.7037%" y="619.50">/home/jharbin/python-venvs/t..</text>
+        </g>
+        <g>
+            <title>                return fit_method(estimator, *args, **kwargs) (32,666,688 bytes, 23.88%)</title>
+            <rect x="65.4537%" y="628" width="23.8819%" height="21" fill="rgb(255,176,176)" fg:x="89530507" fg:w="32666688"/>
+            <text x="65.7037%" y="641.50">                return fit_..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sklearn/preprocessing/_data.py:1029 (partial_fit) (32,666,688 bytes, 23.88%)</title>
+            <rect x="65.4537%" y="650" width="23.8819%" height="21" fill="rgb(255,176,176)" fg:x="89530507" fg:w="32666688"/>
+            <text x="65.7037%" y="663.50">/home/jharbin/python-venvs/t..</text>
+        </g>
+        <g>
+            <title>                self.mean_, self.var_, self.n_samples_seen_ = _incremental_mean_and_var( (32,666,688 bytes, 23.88%)</title>
+            <rect x="65.4537%" y="672" width="23.8819%" height="21" fill="rgb(255,176,176)" fg:x="89530507" fg:w="32666688"/>
+            <text x="65.7037%" y="685.50">                self.mean_,..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/datatypes/_vectorize.py:411 (reconstruct) (14,488,704 bytes, 10.59%)</title>
+            <rect x="89.3355%" y="562" width="10.5924%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14488704"/>
+            <text x="89.5855%" y="575.50">/home/jharb..</text>
+        </g>
+        <g>
+            <title>            X_mi_reconstructed = pd.concat(df_list, axis=1, keys=col_keys) (14,488,704 bytes, 10.59%)</title>
+            <rect x="89.3355%" y="584" width="10.5924%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14488704"/>
+            <text x="89.5855%" y="597.50">          ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/reshape/concat.py:395 (concat) (14,488,704 bytes, 10.59%)</title>
+            <rect x="89.3355%" y="606" width="10.5924%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14488704"/>
+            <text x="89.5855%" y="619.50">/home/jharb..</text>
+        </g>
+        <g>
+            <title>    return op.get_result() (14,488,704 bytes, 10.59%)</title>
+            <rect x="89.3355%" y="628" width="10.5924%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14488704"/>
+            <text x="89.5855%" y="641.50">    return..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/reshape/concat.py:684 (get_result) (14,488,704 bytes, 10.59%)</title>
+            <rect x="89.3355%" y="650" width="10.5924%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14488704"/>
+            <text x="89.5855%" y="663.50">/home/jharb..</text>
+        </g>
+        <g>
+            <title>            new_data = concatenate_managers( (14,488,704 bytes, 10.59%)</title>
+            <rect x="89.3355%" y="672" width="10.5924%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14488704"/>
+            <text x="89.5855%" y="685.50">          ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/concat.py:131 (concatenate_managers) (14,488,704 bytes, 10.59%)</title>
+            <rect x="89.3355%" y="694" width="10.5924%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14488704"/>
+            <text x="89.5855%" y="707.50">/home/jharb..</text>
+        </g>
+        <g>
+            <title>        mgrs = _maybe_reindex_columns_na_proxy(axes, mgrs_indexers, needs_copy) (14,488,704 bytes, 10.59%)</title>
+            <rect x="89.3355%" y="716" width="10.5924%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14488704"/>
+            <text x="89.5855%" y="729.50">        mg..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/concat.py:230 (_maybe_reindex_columns_na_proxy) (14,488,704 bytes, 10.59%)</title>
+            <rect x="89.3355%" y="738" width="10.5924%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14488704"/>
+            <text x="89.5855%" y="751.50">/home/jharb..</text>
+        </g>
+        <g>
+            <title>            mgr = mgr.copy() (14,488,704 bytes, 10.59%)</title>
+            <rect x="89.3355%" y="760" width="10.5924%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14488704"/>
+            <text x="89.5855%" y="773.50">          ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/managers.py:593 (copy) (14,488,704 bytes, 10.59%)</title>
+            <rect x="89.3355%" y="782" width="10.5924%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14488704"/>
+            <text x="89.5855%" y="795.50">/home/jharb..</text>
+        </g>
+        <g>
+            <title>        res = self.apply(&quot;copy&quot;, deep=deep) (14,488,704 bytes, 10.59%)</title>
+            <rect x="89.3355%" y="804" width="10.5924%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14488704"/>
+            <text x="89.5855%" y="817.50">        re..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/managers.py:363 (apply) (14,488,704 bytes, 10.59%)</title>
+            <rect x="89.3355%" y="826" width="10.5924%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14488704"/>
+            <text x="89.5855%" y="839.50">/home/jharb..</text>
+        </g>
+        <g>
+            <title>                applied = getattr(b, f)(**kwargs) (14,488,704 bytes, 10.59%)</title>
+            <rect x="89.3355%" y="848" width="10.5924%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14488704"/>
+            <text x="89.5855%" y="861.50">          ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/pandas/core/internals/blocks.py:822 (copy) (14,488,704 bytes, 10.59%)</title>
+            <rect x="89.3355%" y="870" width="10.5924%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14488704"/>
+            <text x="89.5855%" y="883.50">/home/jharb..</text>
+        </g>
+        <g>
+            <title>            values = values.copy() (14,488,704 bytes, 10.59%)</title>
+            <rect x="89.3355%" y="892" width="10.5924%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14488704"/>
+            <text x="89.5855%" y="905.50">          ..</text>
+        </g>
+        <g>
+            <title>all (136,784,579 bytes, 100%)</title>
+            <rect x="0.0000%" y="100" width="100.0000%" height="21" fill="rgb(255,100,100)" fg:x="0" fg:w="136784579"/>
+            <text x="0.2500%" y="113.50"></text>
+        </g>
+        <g>
+            <title>/home/jharbin/academic/soprano/SBTPredictors/predictor.py:604 (&lt;lambda&gt;) (136,784,579 bytes, 100.00%)</title>
+            <rect x="0.0000%" y="122" width="100.0000%" height="21" fill="rgb(255,100,100)" fg:x="0" fg:w="136784579"/>
+            <text x="0.2500%" y="135.50">/home/jharbin/academic/soprano/SBTPredictors/predictor.py:604 (&lt;lambda&gt;)</text>
+        </g>
+        <g>
+            <title>        pipeline, r2_score_from_reg, predicted_vs_actual = memory_tracker.with_tracking(lambda: run_regression_or_classifier(True, alg_func_delayed, alg_name, params)) (136,784,579 bytes, 100.00%)</title>
+            <rect x="0.0000%" y="144" width="100.0000%" height="21" fill="rgb(255,100,100)" fg:x="0" fg:w="136784579"/>
+            <text x="0.2500%" y="157.50">        pipeline, r2_score_from_reg, predicted_vs_actual = memory_tracker.with_tracking(lambda: run_regression_or_classifier..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/academic/soprano/SBTPredictors/predictor.py:120 (run_regression_or_classifier) (99,978,560 bytes, 73.09%)</title>
+            <rect x="26.9080%" y="166" width="73.0920%" height="21" fill="rgb(255,121,121)" fg:x="36806019" fg:w="99978560"/>
+            <text x="27.1580%" y="179.50">/home/jharbin/academic/soprano/SBTPredictors/predictor.py:120 (run_regression_or_classifie..</text>
+        </g>
+        <g>
+            <title>        pipe.fit(train_data, metrics_train) (99,978,560 bytes, 73.09%)</title>
+            <rect x="26.9080%" y="188" width="73.0920%" height="21" fill="rgb(255,121,121)" fg:x="36806019" fg:w="99978560"/>
+            <text x="27.1580%" y="201.50">        pipe.fit(train_data, metrics_train)</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/regression/base.py:257 (fit) (76,324,144 bytes, 55.80%)</title>
+            <rect x="44.2012%" y="210" width="55.7988%" height="21" fill="rgb(255,138,138)" fg:x="60460435" fg:w="76324144"/>
+            <text x="44.4512%" y="223.50">/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packa..</text>
+        </g>
+        <g>
+            <title>        self._fit(X, y) (76,324,144 bytes, 55.80%)</title>
+            <rect x="44.2012%" y="232" width="55.7988%" height="21" fill="rgb(255,138,138)" fg:x="60460435" fg:w="76324144"/>
+            <text x="44.4512%" y="245.50">        self._fit(X, y)</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/regression/compose/_pipeline.py:525 (_fit) (76,324,144 bytes, 55.80%)</title>
+            <rect x="44.2012%" y="254" width="55.7988%" height="21" fill="rgb(255,138,138)" fg:x="60460435" fg:w="76324144"/>
+            <text x="44.4512%" y="267.50">/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packa..</text>
+        </g>
+        <g>
+            <title>        Xt = self.transformers_.fit_transform(X=X, y=y) (76,324,144 bytes, 55.80%)</title>
+            <rect x="44.2012%" y="276" width="55.7988%" height="21" fill="rgb(255,138,138)" fg:x="60460435" fg:w="76324144"/>
+            <text x="44.4512%" y="289.50">        Xt = self.transformers_.fit_transform(X=X, y=y)..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/transformations/base.py:733 (fit_transform) (76,324,144 bytes, 55.80%)</title>
+            <rect x="44.2012%" y="298" width="55.7988%" height="21" fill="rgb(255,138,138)" fg:x="60460435" fg:w="76324144"/>
+            <text x="44.4512%" y="311.50">/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packa..</text>
+        </g>
+        <g>
+            <title>        return self.fit(X, y).transform(X, y) (76,324,144 bytes, 55.80%)</title>
+            <rect x="44.2012%" y="320" width="55.7988%" height="21" fill="rgb(255,138,138)" fg:x="60460435" fg:w="76324144"/>
+            <text x="44.4512%" y="333.50">        return self.fit(X, y).transform(X, y)..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/transformations/base.py:513 (fit) (76,324,144 bytes, 55.80%)</title>
+            <rect x="44.2012%" y="342" width="55.7988%" height="21" fill="rgb(255,138,138)" fg:x="60460435" fg:w="76324144"/>
+            <text x="44.4512%" y="355.50">/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packa..</text>
+        </g>
+        <g>
+            <title>            self._fit(X=X_inner, y=y_inner) (76,324,144 bytes, 55.80%)</title>
+            <rect x="44.2012%" y="364" width="55.7988%" height="21" fill="rgb(255,138,138)" fg:x="60460435" fg:w="76324144"/>
+            <text x="44.4512%" y="377.50">            self._fit(X=X_inner, y=y_inner)..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/transformations/compose/_pipeline.py:366 (_fit) (76,324,144 bytes, 55.80%)</title>
+            <rect x="44.2012%" y="386" width="55.7988%" height="21" fill="rgb(255,138,138)" fg:x="60460435" fg:w="76324144"/>
+            <text x="44.4512%" y="399.50">/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packa..</text>
+        </g>
+        <g>
+            <title>            Xt = transformer.fit_transform(X=Xt, y=y) (76,324,144 bytes, 55.80%)</title>
+            <rect x="44.2012%" y="408" width="55.7988%" height="21" fill="rgb(255,138,138)" fg:x="60460435" fg:w="76324144"/>
+            <text x="44.4512%" y="421.50">            Xt = transformer.fit_transform(X=Xt, y=y)..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/transformations/base.py:733 (fit_transform) (76,324,144 bytes, 55.80%)</title>
+            <rect x="44.2012%" y="430" width="55.7988%" height="21" fill="rgb(255,138,138)" fg:x="60460435" fg:w="76324144"/>
+            <text x="44.4512%" y="443.50">/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packa..</text>
+        </g>
+        <g>
+            <title>        return self.fit(X, y).transform(X, y) (76,324,144 bytes, 55.80%)</title>
+            <rect x="44.2012%" y="452" width="55.7988%" height="21" fill="rgb(255,138,138)" fg:x="60460435" fg:w="76324144"/>
+            <text x="44.4512%" y="465.50">        return self.fit(X, y).transform(X, y)..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/transformations/base.py:634 (transform) (14,587,384 bytes, 10.66%)</title>
+            <rect x="89.3355%" y="474" width="10.6645%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14587384"/>
+            <text x="89.5855%" y="487.50">/home/jharb..</text>
+        </g>
+        <g>
+            <title>            Xt = self._vectorize(&quot;transform&quot;, X=X_inner, y=y_inner) (14,587,384 bytes, 10.66%)</title>
+            <rect x="89.3355%" y="496" width="10.6645%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14587384"/>
+            <text x="89.5855%" y="509.50">          ..</text>
+        </g>
+        <g>
+            <title>/home/jharbin/python-venvs/tsfresh_results/lib/python3.12/site-packages/sktime/transformations/base.py:1527 (_vectorize) (14,587,384 bytes, 10.66%)</title>
+            <rect x="89.3355%" y="518" width="10.6645%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14587384"/>
+            <text x="89.5855%" y="531.50">/home/jharb..</text>
+        </g>
+        <g>
+            <title>            Xt = X.reconstruct(Xts, overwrite_index=False) (14,587,384 bytes, 10.66%)</title>
+            <rect x="89.3355%" y="540" width="10.6645%" height="21" fill="rgb(255,201,201)" fg:x="122197195" fg:w="14587384"/>
+            <text x="89.5855%" y="553.50">          ..</text>
+        </g>
+    </svg>
+</svg>
